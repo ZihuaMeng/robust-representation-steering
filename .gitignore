@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Data (too large for git)
+data/
+
+# Experiment outputs — binary files (too large for git)
+outputs/*.pt
+outputs/rashomon/*.pt
+outputs/rashomon_sae/*.pt
+
+# Keep CSV reports and text reports (small, essential)
+!outputs/rashomon/hamming_matrix.csv
+!outputs/rashomon/cosine_similarity_matrix.csv
+!outputs/rashomon/per_probe_metrics.csv
+!outputs/rashomon/rashomon_report.txt
+!outputs/rashomon_sae/hamming_matrix.csv
+!outputs/rashomon_sae/cosine_similarity_matrix.csv
+!outputs/rashomon_sae/per_probe_metrics.csv
+!outputs/rashomon_sae/rashomon_report.txt
+!outputs/steering_comparison_report.txt
+!outputs/rashomon_comparison_report.txt
+
+# Weights & Biases
+wandb/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+*.log

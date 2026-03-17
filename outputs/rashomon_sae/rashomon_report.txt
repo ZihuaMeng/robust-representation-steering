@@ -1,0 +1,6 @@
+--- SAE SPACE Rashomon Diagnostics ---
+  Probes: 51 (1 baseline + 50 AWP)
+  Hamming:  mean=0.4453 std=0.4184 min=0.0000 max=0.9050
+  Cosine:   mean=0.999667 std=0.000282 min=0.999176 max=1.000000
+  Acc range:  [0.5075, 0.6950]
+  F1 range:   [0.0664, 0.6920]

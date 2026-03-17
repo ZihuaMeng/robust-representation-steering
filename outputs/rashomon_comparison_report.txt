@@ -1,0 +1,22 @@
+
+=================================================================
+RASHOMON COMPARISON REPORT: Raw Space vs SAE Space
+=================================================================
+
+| Diagnostic              | Raw Space       | SAE Space       |
+|-------------------------|-----------------|-----------------|
+| Input dimension         | 2304            | 16384           |
+| Baseline Accuracy       | 75.50%          | 69.50%          |
+| Baseline AUROC          | 85.65%          | 72.15%          |
+| Baseline F1             | 76.21%          | 68.39%          |
+| Mean Hamming distance   | 0.1946          | 0.4453          |
+| Max Hamming distance    | 0.4375          | 0.9050          |
+| Min Hamming distance    | 0.0000          | 0.0000          |
+| Cosine sim (mean)       | 0.999861       | 0.999667       |
+| Cosine sim (min)        | 0.999573       | 0.999176       |
+| Accuracy range          | [68.50%, 78.00%] | [50.75%, 69.50%] |
+| F1 range                | [59.62%, 81.03%] | [6.64%, 69.20%] |
+| Probes generated        | 50/50           | 50/50           |
+
+Raw-space Rashomon effect:  mean Hamming = 19.46%  CONFIRMED
+SAE-space Rashomon effect:  mean Hamming = 44.53%  CONFIRMED

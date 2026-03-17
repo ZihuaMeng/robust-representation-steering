@@ -1,0 +1,51 @@
+===========================================================================
+ROBUST vs NAIVE STEERING COMPARISON REPORT
+===========================================================================
+
+Rashomon epsilon: 0.15
+Logit threshold:  0.0 (sigmoid = 0.5)
+Rashomon probes:  50
+Unsafe examples:  50
+
+--- Hessian Diagnostics ---
+  Eigenvalue min:     1.623423e+01
+  Eigenvalue max:     1.639656e+03
+  Condition number:   101.00
+
+--- Per-Example Results (first 20) ---
+ Ex     Score  ||d_naive||  ||d_robust||   Naive Cov  Robust Cov
+-----------------------------------------------------------------
+  2   -0.5914       0.5911        5.3389    20/50      50/50  
+  3   -2.8309       2.8295        6.8023    20/50      50/50  
+  7   -2.3815       2.3804        7.3914    20/50      50/50  
+ 10   -3.1408       3.1392        7.1854    20/50      50/50  
+ 12   -3.1341       3.1325        7.8879    20/50      50/50  
+ 14   -0.2484       0.2482        4.4456    20/50      50/50  
+ 16   -1.7476       1.7467        5.8287    20/50      50/50  
+ 17   -2.2403       2.2392        7.0654    20/50      50/50  
+ 18   -1.8900       1.8891        6.9069    20/50      50/50  
+ 19   -2.3143       2.3132        6.7437    20/50      50/50  
+ 21   -2.1950       2.1940        7.4715    20/50      50/50  
+ 23   -0.6265       0.6262        6.7541    20/50      50/50  
+ 24   -0.9003       0.8999        6.6399    20/50      50/50  
+ 25   -3.1025       3.1009        7.4452    20/50      50/50  
+ 28   -1.6718       1.6709        5.4959    20/50      50/50  
+ 30   -3.1192       3.1176        7.1983    20/50      50/50  
+ 32   -2.7166       2.7153        7.4057    20/50      50/50  
+ 37   -1.1759       1.1753        7.8400    20/50      50/50  
+ 38   -2.8206       2.8192        6.8412    20/50      50/50  
+ 40   -1.1079       1.1073        5.8457    20/50      50/50  
+
+--- Aggregate Statistics ---
+  Mean ||delta_naive||:        2.1325
+  Mean ||delta_robust||:       6.9316
+  Robust/Naive norm ratio:     3.25x
+
+  Mean Rashomon coverage (naive):  40.00%
+  Mean Rashomon coverage (robust): 100.00%
+
+  100% coverage rate (naive):  0.0% of examples
+  100% coverage rate (robust): 100.0% of examples
+
+CONCLUSION: Robust steering provides substantially higher Rashomon coverage than naive steering,
+  achieving 100.0% mean coverage vs 40.0% at a cost of 3.25x larger perturbation norm.

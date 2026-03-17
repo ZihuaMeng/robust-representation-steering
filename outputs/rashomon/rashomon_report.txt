@@ -1,0 +1,27 @@
+=================================================================
+RASHOMON SET ANALYSIS REPORT
+=================================================================
+
+Baseline val loss: 0.3318
+Epsilon: 0.15
+Rashomon bound: 0.4818
+Probes generated: 50/50
+
+--- Pairwise Hamming Distance (fraction of test disagreements) ---
+  Mean: 0.1946
+  Std:  0.1569
+  Min:  0.0000
+  Max:  0.4375
+
+--- Pairwise Cosine Similarity (on [w; b] vectors) ---
+  Mean: 0.999861
+  Std:  0.000132
+  Min:  0.999573
+  Max:  1.000000
+
+--- Probe Performance Range ---
+  Accuracy: [0.6850, 0.7800]
+  F1:       [0.5962, 0.8103]
+
+RASHOMON EFFECT CONFIRMED: mean Hamming distance 19.46% > 5%
+  => Non-trivial probe multiplicity exists for safety classification.
