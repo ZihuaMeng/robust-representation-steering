@@ -19,7 +19,7 @@
 
 ---
 
-## 🔍 The Rashomon Effect in LLM Safety Probes
+## The Rashomon Effect in LLM Safety Probes
 
 Linear probes on LLM residual activations are a standard tool for safety classification: train $f(x) = w^\top x + b$ on labeled activations and use $w$ as the steering direction. But **the probe is not unique**. Many weight configurations achieve near-identical loss yet make very different predictions.
 
@@ -43,7 +43,7 @@ Probes that are nearly parallel in weight space ($\cos > 0.999$) disagree on up 
 
 **Why does SAE projection amplify this?** The Gemma Scope SAE maps activations into a 16,384-dimensional space with ~99.9% sparsity (~17 active features per example). This creates massive null-space freedom: the $\varepsilon$-ball around the baseline probe encompasses a far larger volume of functionally-distinct directions. The bimodal SAE-space distribution shows probe pairs either agree well or disagree on ~85% of predictions — two coherent but opposing classification strategies coexist within the Rashomon set.
 
-## 🛡️ Robust Steering
+## Robust Steering
 
 If many near-optimal probes exist, steering along the baseline direction alone is insufficient. We derive a **worst-case robust** perturbation via the loss Hessian.
 
@@ -65,7 +65,7 @@ A **3.25$\times$ norm penalty** buys universal safety coverage. Every unsafe exa
 
 **Hessian diagnostics.** Condition number = 101 after adaptive ridge regularization (eigenvalue range: $[16.2, 1639.7]$).
 
-## ✅ Generalization Validation
+## Generalization Validation
 
 A key concern: probes are admitted to $\mathcal{R}(\varepsilon)$ by a **validation** loss bound. Do they generalize to held-out test data?
 
