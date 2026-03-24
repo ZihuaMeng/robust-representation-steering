@@ -60,14 +60,14 @@ def main():
 
     # ── Load data ─────────────────────────────────────────────────────
     print("\nLoading activations and probes ...")
-    data = torch.load(ACTIVATIONS_PATH, map_location="cpu", weights_only=True)
+    data = torch.load(ACTIVATIONS_PATH, map_location="cpu", weights_only=False)
     train_X, train_y = data["train_X"], data["train_y"]
     test_X, test_y = data["test_X"], data["test_y"]
 
-    baseline = torch.load(BASELINE_PATH, map_location="cpu", weights_only=True)
+    baseline = torch.load(BASELINE_PATH, map_location="cpu", weights_only=False)
     baseline_w, baseline_b = baseline["weight"], baseline["bias"]
 
-    probes = torch.load(RASHOMON_PATH, map_location="cpu", weights_only=True)
+    probes = torch.load(RASHOMON_PATH, map_location="cpu", weights_only=False)
     print(f"  Train set: {train_X.shape[0]} examples, dim={train_X.shape[1]}")
     print(f"  Test set:  {test_X.shape[0]} examples")
     print(f"  AWP probes loaded: {len(probes)}")

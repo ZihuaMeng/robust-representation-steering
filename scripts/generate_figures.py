@@ -231,13 +231,13 @@ def try_load_full_steering_data():
         sys.path.insert(0, os.path.join(ROOT, "src"))
         from steering import naive_delta, robust_delta, rashomon_coverage
 
-        data = torch.load(act_path, map_location="cpu", weights_only=True)
+        data = torch.load(act_path, map_location="cpu", weights_only=False)
         test_X = data["test_X"].double()
-        baseline = torch.load(baseline_path, map_location="cpu", weights_only=True)
+        baseline = torch.load(baseline_path, map_location="cpu", weights_only=False)
         w = baseline["weight"].double()
         b = baseline["bias"].double()
         probes = torch.load(rashomon_path, map_location="cpu", weights_only=False)
-        hess = torch.load(hessian_path, map_location="cpu", weights_only=True)
+        hess = torch.load(hessian_path, map_location="cpu", weights_only=False)
         H_inv = hess["H_inv"]
         epsilon = 0.15
 

@@ -28,11 +28,11 @@ def main():
 
     # ── Load data ────────────────────────────────────────────────────────
     print("Loading data ...")
-    data = torch.load(ACTIVATIONS_PATH, map_location="cpu", weights_only=True)
+    data = torch.load(ACTIVATIONS_PATH, map_location="cpu", weights_only=False)
     train_X, train_y = data["train_X"], data["train_y"]
     test_X, test_y = data["test_X"], data["test_y"]
 
-    baseline = torch.load(BASELINE_PATH, map_location="cpu", weights_only=True)
+    baseline = torch.load(BASELINE_PATH, map_location="cpu", weights_only=False)
     w = baseline["weight"].double()
     b = baseline["bias"].double()
 

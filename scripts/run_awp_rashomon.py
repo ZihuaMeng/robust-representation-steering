@@ -33,11 +33,11 @@ def main():
 
     # ── Load data ────────────────────────────────────────────────────────
     print("Loading cached activations and baseline probe ...")
-    data = torch.load(ACTIVATIONS_PATH, map_location="cpu", weights_only=True)
+    data = torch.load(ACTIVATIONS_PATH, map_location="cpu", weights_only=False)
     train_X, train_y = data["train_X"], data["train_y"]
     test_X, test_y = data["test_X"], data["test_y"]
 
-    baseline = torch.load(BASELINE_PATH, map_location="cpu", weights_only=True)
+    baseline = torch.load(BASELINE_PATH, map_location="cpu", weights_only=False)
     baseline_w, baseline_b = baseline["weight"], baseline["bias"]
     print(f"Train: {train_X.shape}, Test: {test_X.shape}")
     print(f"Baseline test metrics: {baseline['test_metrics']}")

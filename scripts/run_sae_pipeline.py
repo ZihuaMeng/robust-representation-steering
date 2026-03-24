@@ -165,7 +165,7 @@ def main():
 
     # ── Load cached activations ──────────────────────────────────────────
     print("\nLoading cached raw activations ...")
-    data = torch.load(ACTIVATIONS_PATH, map_location="cpu", weights_only=True)
+    data = torch.load(ACTIVATIONS_PATH, map_location="cpu", weights_only=False)
     train_X, train_y = data["train_X"], data["train_y"]
     test_X, test_y = data["test_X"], data["test_y"]
     print(f"Raw activations — train: {train_X.shape}, test: {test_X.shape}")
@@ -245,7 +245,7 @@ def main():
     print("=" * 65)
 
     # Load raw-space results
-    raw_baseline = torch.load(BASELINE_PATH, map_location="cpu", weights_only=True)
+    raw_baseline = torch.load(BASELINE_PATH, map_location="cpu", weights_only=False)
     raw_metrics = raw_baseline["test_metrics"]
 
     # Load raw rashomon diagnostics (recompute from saved probes)
