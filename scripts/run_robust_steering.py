@@ -9,7 +9,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 import torch
 
 from hessian import compute_hessian
-from steering import naive_delta, robust_delta, rashomon_coverage
+from steering import naive_delta, robust_delta, robust_delta_dynamic, rashomon_coverage
 
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "..", "outputs")
 ACTIVATIONS_PATH = os.path.join(OUTPUT_DIR, "beavertails_activations_layer10.pt")
@@ -80,6 +80,8 @@ def main():
 
         d_robust = robust_delta(w, b, x, H_inv, EPSILON, THRESHOLD)
         norm_robust = d_robust.norm().item()
+        d_dynamic = robust_delta_dynamic(w, b, x, H_inv, EPSILON, THRESHOLD)
+        norm_dynamic = d_dynamic.norm().item()
 
         n_cov_naive, n_total, frac_naive = rashomon_coverage(
             d_naive, x, rashomon_probes, THRESHOLD,
@@ -87,23 +89,31 @@ def main():
         n_cov_robust, _, frac_robust = rashomon_coverage(
             d_robust, x, rashomon_probes, THRESHOLD,
         )
+        n_cov_dynamic, _, frac_dynamic = rashomon_coverage(
+            d_dynamic, x, rashomon_probes, THRESHOLD,
+        )
 
         results.append({
             "idx": idx,
             "score": score,
             "norm_naive": norm_naive,
             "norm_robust": norm_robust,
+            "norm_dynamic": norm_dynamic,
             "cov_naive": n_cov_naive,
             "cov_robust": n_cov_robust,
+            "cov_dynamic": n_cov_dynamic,
             "n_probes": n_total,
             "frac_naive": frac_naive,
             "frac_robust": frac_robust,
+            "frac_dynamic": frac_dynamic,
         })
 
         if (i + 1) % 10 == 0 or i == 0:
             print(f"  Processed {i+1}/{n_unsafe}: "
                   f"||d_naive||={norm_naive:.4f}  ||d_robust||={norm_robust:.4f}  "
-                  f"cov_naive={n_cov_naive}/{n_total}  cov_robust={n_cov_robust}/{n_total}")
+                  f"||d_dynamic||={norm_dynamic:.4f}  "
+                  f"cov_naive={n_cov_naive}/{n_total}  cov_robust={n_cov_robust}/{n_total}  "
+                  f"cov_dynamic={n_cov_dynamic}/{n_total}")
 
     # ── Phase 4: Report ──────────────────────────────────────────────────
     print("\n" + "=" * 65)
@@ -112,15 +122,19 @@ def main():
 
     mean_norm_naive = sum(r["norm_naive"] for r in results) / len(results)
     mean_norm_robust = sum(r["norm_robust"] for r in results) / len(results)
+    mean_norm_dynamic = sum(r["norm_dynamic"] for r in results) / len(results)
     mean_cov_naive = sum(r["frac_naive"] for r in results) / len(results)
     mean_cov_robust = sum(r["frac_robust"] for r in results) / len(results)
+    mean_cov_dynamic = sum(r["frac_dynamic"] for r in results) / len(results)
     full_cov_naive = sum(1 for r in results if r["cov_naive"] == r["n_probes"]) / len(results)
     full_cov_robust = sum(1 for r in results if r["cov_robust"] == r["n_probes"]) / len(results)
+    full_cov_dynamic = sum(1 for r in results if r["cov_dynamic"] == r["n_probes"]) / len(results)
     norm_ratio = mean_norm_robust / mean_norm_naive if mean_norm_naive > 0 else float("inf")
+    norm_ratio_dynamic = mean_norm_dynamic / mean_norm_naive if mean_norm_naive > 0 else float("inf")
 
     lines = [
         "=" * 75,
-        "ROBUST vs NAIVE STEERING COMPARISON REPORT",
+        "NAIVE vs ROBUST vs DYNAMIC-ROBUST STEERING COMPARISON REPORT",
         "=" * 75,
         "",
         f"Rashomon epsilon: {EPSILON}",
@@ -135,16 +149,17 @@ def main():
         "",
         "--- Per-Example Results (first 20) ---",
         f"{'Ex':>3s}  {'Score':>8s}  {'||d_naive||':>11s}  {'||d_robust||':>12s}  "
-        f"{'Naive Cov':>10s}  {'Robust Cov':>10s}",
-        "-" * 65,
+        f"{'||d_dyn||':>10s}  {'Naive Cov':>10s}  {'Robust Cov':>10s}  {'Dyn Cov':>10s}",
+        "-" * 104,
     ]
 
     for r in results[:20]:
         lines.append(
             f"{r['idx']:>3d}  {r['score']:>8.4f}  {r['norm_naive']:>11.4f}  "
-            f"{r['norm_robust']:>12.4f}  "
+            f"{r['norm_robust']:>12.4f}  {r['norm_dynamic']:>10.4f}  "
             f"{r['cov_naive']:>4d}/{r['n_probes']:<4d}  "
-            f"{r['cov_robust']:>4d}/{r['n_probes']:<4d}"
+            f"{r['cov_robust']:>4d}/{r['n_probes']:<4d}  "
+            f"{r['cov_dynamic']:>4d}/{r['n_probes']:<4d}"
         )
 
     lines += [
@@ -152,29 +167,43 @@ def main():
         "--- Aggregate Statistics ---",
         f"  Mean ||delta_naive||:        {mean_norm_naive:.4f}",
         f"  Mean ||delta_robust||:       {mean_norm_robust:.4f}",
+        f"  Mean ||delta_dynamic||:      {mean_norm_dynamic:.4f}",
         f"  Robust/Naive norm ratio:     {norm_ratio:.2f}x",
+        f"  Dynamic/Naive norm ratio:    {norm_ratio_dynamic:.2f}x",
         "",
         f"  Mean Rashomon coverage (naive):  {mean_cov_naive:.2%}",
         f"  Mean Rashomon coverage (robust): {mean_cov_robust:.2%}",
+        f"  Mean Rashomon coverage (dynamic): {mean_cov_dynamic:.2%}",
         "",
         f"  100% coverage rate (naive):  {full_cov_naive:.1%} of examples",
         f"  100% coverage rate (robust): {full_cov_robust:.1%} of examples",
+        f"  100% coverage rate (dynamic): {full_cov_dynamic:.1%} of examples",
         "",
     ]
 
-    if mean_cov_robust > mean_cov_naive:
+    if mean_cov_dynamic >= mean_cov_robust and mean_cov_dynamic > mean_cov_naive:
+        lines.append(
+            "CONCLUSION: Dynamic robust steering gives the best Rashomon coverage "
+            "among the three methods on this run."
+        )
+        lines.append(
+            f"  dynamic={mean_cov_dynamic:.1%}, robust={mean_cov_robust:.1%}, "
+            f"naive={mean_cov_naive:.1%}; dynamic norm ratio={norm_ratio_dynamic:.2f}x."
+        )
+    elif mean_cov_robust > mean_cov_naive:
         lines.append(
             "CONCLUSION: Robust steering provides substantially higher Rashomon "
             "coverage than naive steering,"
         )
         lines.append(
-            f"  achieving {mean_cov_robust:.1%} mean coverage vs {mean_cov_naive:.1%} "
-            f"at a cost of {norm_ratio:.2f}x larger perturbation norm."
+            f"  achieving robust={mean_cov_robust:.1%}, dynamic={mean_cov_dynamic:.1%}, "
+            f"naive={mean_cov_naive:.1%}; norm ratios robust={norm_ratio:.2f}x, "
+            f"dynamic={norm_ratio_dynamic:.2f}x."
         )
     else:
         lines.append(
-            "NOTE: Robust and naive coverage are similar. The Rashomon ellipsoid "
-            "may be tightly concentrated around the baseline."
+            "NOTE: Coverage is similar across methods. The Rashomon ellipsoid "
+            "may be tightly concentrated around the baseline in this setup."
         )
 
     lines.append("")
