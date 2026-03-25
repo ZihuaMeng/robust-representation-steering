@@ -28,6 +28,14 @@ outputs/rashomon_sae/*.pt
 !outputs/rashomon_sae/rashomon_report.txt
 !outputs/steering_comparison_report.txt
 !outputs/rashomon_comparison_report.txt
+!outputs/sae_steering_prototype_report.txt
+!outputs/decoder_subspace_diagnostic.txt
+!outputs/sae_feature_decomposition_report.txt
+!outputs/implementation_memo.md
+!outputs/technical_summary.md
+
+# Local planning / working memory
+project_memory/
 
 # Weights & Biases
 wandb/

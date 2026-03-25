@@ -1,0 +1,84 @@
+===============================================================================================
+FOUR-WAY SAE ROBUST STEERING COMPARISON REPORT
+===============================================================================================
+
+Rashomon epsilon: 0.15
+Logit threshold:  0.0 (sigmoid = 0.5)
+Rashomon probes:  50
+Unsafe examples:  50
+
+Strategies:
+  (A) Naive Raw:       min-norm delta in raw space
+  (B) Robust Raw:      Rashomon-robust delta in raw space (dense H_inv)
+  (C) Naive SAE→Raw:   min-norm delta in SAE space, decoded via W_dec
+  (D) Robust SAE→Raw:  robust delta in SAE space (Woodbury + adaptive ridge), decoded via W_dec
+
+--- Per-Example Results (first 20) ---
+ Ex   ||δ_A||   ||δ_B||   ||δ_C||   ||δ_D||   Cov_A   Cov_B   Cov_C   Cov_D
+---------------------------------------------------------------------------
+  2    0.5911    5.3389    0.1321    2.6509   20/50   50/50   20/50   20/50
+  3    2.8295    6.8023    0.5262    1.9181   20/50   50/50    0/50    0/50
+  7    2.3804    7.3914    0.8653    3.2025   20/50   50/50    0/50    0/50
+ 10    3.1392    7.1854    0.5338    2.1533   20/50   50/50    0/50    0/50
+ 12    3.1325    7.8879    0.6474    2.5863   20/50   50/50    0/50    0/50
+ 14    0.2482    4.4456    0.3652    2.6808   20/50   50/50   20/50   20/50
+ 16    1.7467    5.8287    0.2087    1.8498   20/50   50/50    0/50    5/50
+ 17    2.2392    7.0654    0.6509    3.0915   20/50   50/50    0/50    7/50
+ 18    1.8891    6.9069    0.9586    2.9714   20/50   50/50    0/50    8/50
+ 19    2.3132    6.7437    0.9487    3.1644   20/50   50/50    0/50    0/50
+ 21    2.1940    7.4715    0.0000    0.0000   20/50   50/50    0/50    0/50
+ 23    0.6262    6.7541    0.0989    2.9826   20/50   50/50   20/50   20/50
+ 24    0.8999    6.6399    0.0000    0.0000   20/50   50/50   20/50   20/50
+ 25    3.1009    7.4452    0.9929    3.1629   20/50   50/50    0/50    0/50
+ 28    1.6709    5.4959    0.4082    1.8764   20/50   50/50    0/50    7/50
+ 30    3.1176    7.1983    0.2848    1.8798   20/50   50/50    0/50    0/50
+ 32    2.7153    7.4057    0.3396    1.8755   20/50   50/50    0/50    0/50
+ 37    1.1753    7.8400    0.5307    4.7831   20/50   50/50   20/50   20/50
+ 38    2.8192    6.8412    0.0136    1.6215   20/50   50/50    0/50    0/50
+ 40    1.1073    5.8457    0.5224    2.7866   20/50   50/50   10/50   20/50
+
+--- Aggregate Statistics ---
+
+Metric                      Naive Raw  Robust Raw   Naive SAE→Raw   Robust SAE→Raw
+----------------------------------------------------------------------------------
+Mean ||δ||                     2.1325      6.9316          0.4187           2.5388
+Mean Rashomon coverage         40.00%     100.00%           9.36%           13.56%
+100% coverage rate               0.0%      100.0%            0.0%             0.0%
+Coverage per unit norm         0.1876      0.1443          0.2236           0.0534
+
+--- 2x2 Factorial Decomposition ---
+
+EFFECT OF SPACE (SAE→raw vs raw), holding optimization fixed:
+  Naive:  SAE→raw - raw = 9.36% - 40.00% = -30.64%
+  Robust: SAE→raw - raw = 13.56% - 100.00% = -86.44%
+  => SAE space HURTS coverage in both settings.
+
+EFFECT OF OPTIMIZATION (robust vs naive), holding space fixed:
+  Raw:     robust - naive = 100.00% - 40.00% = +60.00%
+  SAE→raw: robust - naive = 13.56% - 9.36% = +4.20%
+  => Robust optimization IMPROVES coverage in both spaces.
+
+INTERACTION (is robust optimization more valuable in one space?):
+  (D-C) - (B-A) = +4.20% - +60.00% = -55.80%
+  => Negative interaction: robust optimization is MORE valuable in raw space.
+
+NORM COST ANALYSIS:
+  Raw:     robust/naive norm ratio = 3.25x
+  SAE→raw: robust/naive norm ratio = 6.06x
+  SAE→raw / raw norm ratio (naive):  0.20x
+  SAE→raw / raw norm ratio (robust): 0.37x
+
+===============================================================================================
+SCIENTIFIC VERDICT
+===============================================================================================
+
+Best mean Rashomon coverage:     Robust Raw (100.00%)
+Best coverage per unit norm:     Naive SAE→Raw (0.2236)
+
+SAE-decoded robust steering shows REDUCED effectiveness.
+  Robust SAE→raw achieves 13.56% coverage vs 100.00% for raw-space robust.
+
+Factorial decomposition summary:
+  - Space effect (SAE→raw vs raw):     naive -30.64%, robust -86.44%
+  - Optimization effect (robust vs naive): raw +60.00%, SAE +4.20%
+  - Interaction:                        -55.80%

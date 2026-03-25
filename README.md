@@ -1,6 +1,6 @@
 # Rashomon-Robust Representation Steering
 
-**Safety probes with >99.9% cosine similarity disagree on up to 90% of predictions. We derive a closed-form fix.**
+**Safety probes with >99.9% cosine similarity disagree on up to 90% of predictions. We derive a closed-form fix -- and show why sparse autoencoder decomposition cannot simplify it.**
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 [![PyTorch 2.x](https://img.shields.io/badge/PyTorch-2.x-ee4c2c.svg)](https://pytorch.org/)
@@ -15,7 +15,9 @@
 |:---|:---|
 | **Rashomon Effect** | 19.5% mean prediction disagreement (raw), **44.5%** (SAE) among probes with equivalent loss |
 | **Robust Steering** | **100% Rashomon coverage** vs 40% naive, at 3.25$\times$ norm cost |
-| **Generalization** | Pearson $r = 0.997$ between val and test loss — the Rashomon bound transfers to held-out data |
+| **Generalization** | Pearson $r = 0.997$ between val and test loss -- the Rashomon bound transfers to held-out data |
+| **SAE-Decoded Steering** | **13.56% coverage** -- decoder spans $\mathbb{R}^{2304}$ (not the bottleneck); the SAE-space optimizer is |
+| **Feature Decomposition** | Robust delta is intrinsically SAE-dense: **2,433 features** even under $\ell_1$ minimization |
 
 ---
 
@@ -41,7 +43,7 @@ Probes that are nearly parallel in weight space ($\cos > 0.999$) disagree on up 
 
 ![Distribution of Probe Disagreement: Raw vs SAE Space](assets/figures/fig_hamming_distribution_comparison.png)
 
-**Why does SAE projection amplify this?** The Gemma Scope SAE maps activations into a 16,384-dimensional space with ~99.9% sparsity (~17 active features per example). This creates massive null-space freedom: the $\varepsilon$-ball around the baseline probe encompasses a far larger volume of functionally-distinct directions. The bimodal SAE-space distribution shows probe pairs either agree well or disagree on ~85% of predictions — two coherent but opposing classification strategies coexist within the Rashomon set.
+**Why does SAE projection amplify this?** The Gemma Scope SAE maps activations into a 16,384-dimensional space with ~99.9% sparsity (~17 active features per example). This creates massive null-space freedom: the $\varepsilon$-ball around the baseline probe encompasses a far larger volume of functionally-distinct directions. The bimodal SAE-space distribution shows probe pairs either agree well or disagree on ~85% of predictions -- two coherent but opposing classification strategies coexist within the Rashomon set.
 
 ## Robust Steering
 
@@ -51,7 +53,7 @@ If many near-optimal probes exist, steering along the baseline direction alone i
 
 $$\min_{\delta} \|\delta\|^2 \quad \text{s.t.} \quad \hat{\theta}^\top \tilde{x}_{\text{new}} - \sqrt{2\varepsilon \cdot \tilde{x}_{\text{new}}^\top H^{-1} \tilde{x}_{\text{new}}} \;\geq\; t$$
 
-The correction term $\sqrt{2\varepsilon \cdot \tilde{x}^\top H^{-1} \tilde{x}}$ accounts for the maximum logit reduction any Rashomon-feasible probe could produce — guaranteeing safety under the **worst-case** probe in the ellipsoid.
+The correction term $\sqrt{2\varepsilon \cdot \tilde{x}^\top H^{-1} \tilde{x}}$ accounts for the maximum logit reduction any Rashomon-feasible probe could produce -- guaranteeing safety under the **worst-case** probe in the ellipsoid.
 
 | | Naive Steering | Robust Steering |
 |:---|:---:|:---:|
@@ -80,19 +82,71 @@ We compute BCE loss on three disjoint splits (train subset $n = 1280$, val $n = 
 
 The ~0.14 val-test gap is a **constant offset** from the train/test distribution split, not probe-specific overfitting: the baseline shows the same gap, the standard deviation across probes is only 0.003, and val-test losses are near-perfectly rank-correlated. The validation-loss bound transfers reliably to held-out data.
 
+## SAE Space: Amplification, Not Resolution
+
+Can sparse autoencoders help? We run a 2$\times$2 factorial -- {naive, robust} $\times$ {raw, SAE$\to$raw} -- evaluating all four strategies against the same 50 raw-space Rashomon probes.
+
+### SAE-Space Hessian
+
+The SAE-space Hessian ($d = 16{,}384$) has a fundamentally different spectral structure from raw space. With $N_\text{train} = 1{,}600 \ll d = 16{,}384$, the data-dependent term has rank $\leq 1{,}600$ (numerical rank 931, effective rank 120 at 99% spectral mass). We invert it exactly via the Woodbury identity with adaptive ridge ($\lambda = 4.69$, condition $\approx 101$).
+
+| Property | Raw Space ($d = 2304$) | SAE Space ($d = 16384$) |
+|:---------|:----------------------:|:-----------------------:|
+| Hessian dimension | 2,305 | 16,385 |
+| Numerical rank | 2,305 (full) | 931 |
+| Effective rank (99%) | full | 120 |
+| Inversion method | Dense | Woodbury (~22 ms/matvec) |
+
+### Four-Way Steering Comparison
+
+| Metric | Naive Raw | Robust Raw | Naive SAE$\to$Raw | Robust SAE$\to$Raw |
+|:-------|:---------:|:----------:|:-----------------:|:------------------:|
+| Mean $\|\delta\|$ | 2.13 | 6.93 | 0.42 | 2.54 |
+| Mean Rashomon Coverage | 40.0% | **100.0%** | 9.4% | 13.6% |
+| 100% Coverage Rate | 0% | **100%** | 0% | 0% |
+
+**Factorial decomposition.** The space effect (SAE$\to$raw vs raw) is strongly negative: $-30.6$pp naive, $-86.4$pp robust. The optimization effect (robust vs naive) is positive but asymmetric: $+60$pp in raw space, $+4.2$pp through SAE decode. The interaction ($-55.8$pp) shows that robust optimization is far more valuable in raw space -- the SAE decode pathway neutralizes most of the gain.
+
+### Decoder Subspace Diagnostic
+
+The SAE decoder $W_\text{dec} \in \mathbb{R}^{16384 \times 2304}$ has **full numerical rank** (2,304/2,304), condition number 19.4. Its column space spans the entire raw activation space: $\text{col}(W_\text{dec}) = \mathbb{R}^{2304}$. Projecting raw-space robust deltas onto the column space preserves 100% of energy and 100% of coverage.
+
+**The bottleneck is the SAE-space optimizer, not the decoder subspace.** The SAE probe has different decision boundaries than the raw probe, and the SAE Hessian captures uncertainty about the wrong set of probes. The optimizer minimizes $\|\delta_\text{SAE}\|$ rather than $\|\delta_\text{SAE} W_\text{dec}\|$, finding the shortest path in SAE space instead of the shortest decoded path in raw space.
+
+## Feature Decomposition: Intrinsic Density
+
+If the robust delta cannot be computed in SAE space, can it at least be *explained* there? We decompose raw-space robust deltas into SAE features via three methods:
+
+| Method | Significant Features | Top-20 Energy | Reconstruction Error |
+|:-------|:--------------------:|:-------------:|:--------------------:|
+| Min-$\ell_2$ (pseudoinverse) | 16,292 | 2.9% | $3.2 \times 10^{-14}$ |
+| Min-$\ell_1$ (FISTA) | **2,433** | 13.6% | $1.0 \times 10^{-3}$ |
+| Encoder $\Delta z$ | 14.7 | 99.6% | 105% (not exact) |
+
+**Verdict: Case (b) -- intrinsically distributed.** Even the sparsest exact decomposition (min-$\ell_1$) requires ~2,433 features, with top-20 capturing only 13.6% of energy. The robust delta is a fundamentally high-dimensional object in SAE coordinates. The encoder-based $\Delta z$ is sparse (14.7 features) but has >100% reconstruction error -- it represents "how the SAE perceives the perturbation," not an algebraic decomposition.
+
+Feature identity is example-independent: both algebraic methods target identical features across all examples (Jaccard = 1.000). The SAE-space optimizer's $\delta_\text{SAE}$ was nearly orthogonal to the correct decomposition (cosine $\approx 0.09$, zero top-20 feature overlap).
+
+**Interpretable sparse steering would require an $\ell_1$-penalized robust optimization** that explicitly trades Rashomon coverage for sparsity -- a genuinely different optimization objective, not a change in analysis.
+
 ## Method Overview
 
 ```
 BeaverTails (1000 safe + 1000 unsafe)
-  → Gemma-2 2B, Layer 10 residual stream (d=2304)
-    → Linear probe (BCE + L2, λ=0.01)
-      → AWP: enumerate Rashomon set (50 probes, ε=0.15)
-        → Pairwise Hamming analysis
-    → Gemma Scope SAE (JumpReLU, 16k features)
-      → Same pipeline in SAE space
-    → BCE Hessian at baseline (d+1 × d+1)
-      → Robust δ via Hessian-scaled bisection
-        → Coverage comparison: naive vs robust
+  -> Gemma-2 2B, Layer 10 residual stream (d=2304)
+    -> Linear probe (BCE + L2, lambda=0.01)
+      -> AWP: enumerate Rashomon set (50 probes, eps=0.15)
+        -> Pairwise Hamming analysis
+    -> Gemma Scope SAE (JumpReLU, 16k features)
+      -> Same pipeline in SAE space (amplified Rashomon effect)
+    -> BCE Hessian at baseline (d+1 x d+1)
+      -> Robust delta via Hessian-scaled bisection
+        -> Coverage comparison: naive vs robust (100% coverage)
+    -> SAE-space Hessian (Woodbury, rank 931)
+      -> 4-way factorial: {naive, robust} x {raw, SAE->raw}
+        -> Decoder column-space diagnostic (full rank)
+        -> Feature decomposition (L2 / L1 / encoder)
+          -> Verdict: intrinsically SAE-dense
 ```
 
 ## Repository Structure
@@ -110,19 +164,29 @@ robust-representation-steering/
 │   ├── steering.py               # Naive & robust delta solvers
 │   └── sae_utils.py              # Gemma Scope SAE utilities
 ├── scripts/
-│   ├── train_baseline_probe.py   # Step 1: data → activations → probe
-│   ├── run_awp_rashomon.py       # Step 2: AWP Rashomon enumeration
-│   ├── run_sae_pipeline.py       # Step 3: SAE projection + AWP
-│   ├── run_robust_steering.py    # Step 4: robust vs naive steering
-│   ├── analyze_probe_losses.py   # Step 5: train/val/test generalization
-│   └── generate_figures.py       # Step 6: publication figures
-├── outputs/                      # Experiment artifacts (.pt files gitignored)
-│   ├── technical_summary.md      # Full technical report
-│   ├── probe_loss_analysis.csv   # Per-probe loss table (51 rows)
-│   ├── rashomon/                 # Raw-space Rashomon results
-│   ├── rashomon_sae/             # SAE-space Rashomon results
-│   └── steering_comparison_report.txt
-└── assets/figures/               # 6 publication-quality figures
+│   ├── 01_train_baseline_probe.py    # Data -> activations -> probe
+│   ├── 02_run_awp_rashomon.py        # AWP Rashomon enumeration (raw space)
+│   ├── 03_run_sae_pipeline.py        # SAE projection + AWP (SAE space)
+│   ├── 04_run_robust_steering.py     # Robust vs naive steering comparison
+│   ├── 05_analyze_probe_losses.py    # Train/val/test generalization analysis
+│   ├── 06_generate_figures.py        # Publication figures
+│   ├── 07_sae_hessian_feasibility.py # SAE-space Hessian spectral analysis
+│   ├── 08_sae_steering_prototype.py  # 4-way factorial steering comparison
+│   ├── 09_decoder_subspace_diagnostic.py  # Decoder column-space diagnostic
+│   ├── 10_sae_feature_decomposition.py   # L2/L1/encoder decomposition
+│   ├── verify_env.py                 # Environment verification utility
+│   └── verify_model_and_activations.py   # Model/activation verification
+├── outputs/                          # Experiment artifacts (.pt files gitignored)
+│   ├── technical_summary.md          # Full technical report
+│   ├── implementation_memo.md        # Math verification & code walkthrough
+│   ├── probe_loss_analysis.csv       # Per-probe loss table (51 rows)
+│   ├── steering_comparison_report.txt
+│   ├── sae_steering_prototype_report.txt
+│   ├── decoder_subspace_diagnostic.txt
+│   ├── sae_feature_decomposition_report.txt
+│   ├── rashomon/                     # Raw-space Rashomon results
+│   └── rashomon_sae/                 # SAE-space Rashomon results
+└── assets/figures/                   # Publication-quality figures
 ```
 
 ## Quick Start
@@ -137,26 +201,22 @@ pip install -r requirements.txt
 
 ### Run the Pipeline
 
-Steps 1--4 require GPU and download models from HuggingFace. Steps 5--6 run on CPU.
+Scripts 01--06 reproduce the core Rashomon and robust steering results. Scripts 07--10 reproduce the SAE diagnostic experiments. Steps 01--04 and 07--10 require GPU. Steps 05--06 run on CPU.
 
 ```bash
-# Step 1: Extract activations & train baseline probe
-python scripts/train_baseline_probe.py
+# Core pipeline
+python scripts/01_train_baseline_probe.py      # Extract activations & train probe
+python scripts/02_run_awp_rashomon.py           # Enumerate Rashomon set (raw)
+python scripts/03_run_sae_pipeline.py           # SAE projection + Rashomon (SAE)
+python scripts/04_run_robust_steering.py        # Robust vs naive steering
+python scripts/05_analyze_probe_losses.py       # Generalization analysis (CPU)
+python scripts/06_generate_figures.py           # Generate figures (CPU)
 
-# Step 2: Enumerate Rashomon set via AWP (raw space)
-python scripts/run_awp_rashomon.py
-
-# Step 3: SAE projection + Rashomon enumeration (SAE space)
-python scripts/run_sae_pipeline.py
-
-# Step 4: Robust vs naive steering comparison
-python scripts/run_robust_steering.py
-
-# Step 5: Train/val/test generalization analysis (CPU)
-python scripts/analyze_probe_losses.py
-
-# Step 6: Generate figures (CPU)
-python scripts/generate_figures.py
+# SAE diagnostic experiments
+python scripts/07_sae_hessian_feasibility.py    # SAE-space Hessian characterization
+python scripts/08_sae_steering_prototype.py     # 4-way factorial comparison
+python scripts/09_decoder_subspace_diagnostic.py  # Decoder column-space test
+python scripts/10_sae_feature_decomposition.py  # Feature decomposition analysis
 ```
 
 ## Citation

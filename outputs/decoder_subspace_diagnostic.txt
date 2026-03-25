@@ -1,0 +1,89 @@
+===============================================================================================
+DECODER COLUMN-SPACE DIAGNOSTIC REPORT
+===============================================================================================
+
+Rashomon epsilon: 0.15
+Logit threshold:  0.0
+Rashomon probes:  50
+Unsafe examples:  50
+
+--- W_dec Spectral Characterization ---
+  Shape: [16384, 2304] (d_sae x d_model)
+  Numerical rank: 2304 / 2304
+  Max singular value: 11.036924
+  Min singular value: 5.690662e-01
+  Condition number: 1.94e+01
+  Effective rank (90.0% energy): 1630
+  Effective rank (95.0% energy): 1898
+  Effective rank (99.0% energy): 2191
+  Effective rank (99.9% energy): 2286
+
+  *** W_dec is FULL RANK ***
+  col(W_dec) = R^2304 — the decoder can represent ANY direction.
+  Projection onto col(W_dec) is the identity mapping.
+
+--- Energy Decomposition ---
+
+Delta type       Mean ||d_raw||  Mean ||d_proj||  Mean ||d_perp||    Energy in col(W_dec)
+-----------------------------------------------------------------------------------------
+Naive raw                2.1325           2.1325         0.000000             100.000000%
+Robust raw               6.9316           6.9316         0.000000             100.000000%
+
+--- Coverage Comparison ---
+
+Strategy                    Mean Coverage  100% Coverage Rate
+-------------------------------------------------------------
+Robust raw                        100.00%              100.0%
+Robust projected                  100.00%              100.0%
+Naive raw                          40.00%                0.0%
+Naive projected                    40.00%                0.0%
+
+--- Coverage Change from Projection ---
+  Robust: 100.00% -> 100.00% (+0.00%)
+  Naive:  40.00% -> 40.00% (+0.00%)
+
+--- Per-Example Detail (first 20) ---
+ Ex  ||d_rob||     E_rob  Cov_raw  Cov_proj  ||d_nai||     E_nai  Cov_raw  Cov_proj
+-----------------------------------------------------------------------------------
+  2     5.3389  1.000000   50/50    50/50     0.5911  1.000000   20/50    20/50
+  3     6.8023  1.000000   50/50    50/50     2.8295  1.000000   20/50    20/50
+  7     7.3914  1.000000   50/50    50/50     2.3804  1.000000   20/50    20/50
+ 10     7.1854  1.000000   50/50    50/50     3.1392  1.000000   20/50    20/50
+ 12     7.8879  1.000000   50/50    50/50     3.1325  1.000000   20/50    20/50
+ 14     4.4456  1.000000   50/50    50/50     0.2482  1.000000   20/50    20/50
+ 16     5.8287  1.000000   50/50    50/50     1.7467  1.000000   20/50    20/50
+ 17     7.0654  1.000000   50/50    50/50     2.2392  1.000000   20/50    20/50
+ 18     6.9069  1.000000   50/50    50/50     1.8891  1.000000   20/50    20/50
+ 19     6.7437  1.000000   50/50    50/50     2.3132  1.000000   20/50    20/50
+ 21     7.4715  1.000000   50/50    50/50     2.1940  1.000000   20/50    20/50
+ 23     6.7541  1.000000   50/50    50/50     0.6262  1.000000   20/50    20/50
+ 24     6.6399  1.000000   50/50    50/50     0.8999  1.000000   20/50    20/50
+ 25     7.4452  1.000000   50/50    50/50     3.1009  1.000000   20/50    20/50
+ 28     5.4959  1.000000   50/50    50/50     1.6709  1.000000   20/50    20/50
+ 30     7.1983  1.000000   50/50    50/50     3.1176  1.000000   20/50    20/50
+ 32     7.4057  1.000000   50/50    50/50     2.7153  1.000000   20/50    20/50
+ 37     7.8400  1.000000   50/50    50/50     1.1753  1.000000   20/50    20/50
+ 38     6.8412  1.000000   50/50    50/50     2.8192  1.000000   20/50    20/50
+ 40     5.8457  1.000000   50/50    50/50     1.1073  1.000000   20/50    20/50
+
+===============================================================================================
+DIAGNOSTIC VERDICT
+===============================================================================================
+
+col(W_dec) CONTAINS effective steering directions.
+
+Evidence:
+  - Robust projected coverage: 100.00% (vs 100.00% raw)
+  - 100.0000% of robust delta energy lies in col(W_dec)
+  - Projection preserves 100.0% of raw coverage
+  - 100% coverage rate: 100.0% (vs 100.0% raw)
+
+The bottleneck is the SAE-space optimizer, not the subspace.
+The decoder's column space can represent the directions needed for full
+Rashomon coverage. The 13.56% coverage from the 4-way prototype is due
+to the SAE-space optimization producing suboptimal coefficients, not
+because the subspace lacks the right directions.
+
+Recommended next step: projection-aware optimization directly in col(W_dec).
+This would optimize in raw space but constrain the delta to lie in the
+decoder's column space, bypassing the SAE-space probe/Hessian entirely.

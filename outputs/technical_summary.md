@@ -107,6 +107,130 @@ Robust steering requires a **3.25$\times$ larger perturbation norm** but achieve
 - **Baseline comparisons.** Compare robust Rashomon steering against Activation Addition (Turner et al., 2023) and RepE (Zou et al., 2023) on matched safety/fluency metrics.
 - **Tighter Rashomon bounds.** Investigate whether the Hessian-based ellipsoidal approximation can be tightened (e.g., using higher-order corrections or sampling-based coverage estimates).
 
+## 6. SAE-Space Hessian: Spectral Analysis and Woodbury Inversion
+
+### Setup
+
+The SAE-space Hessian operates in $d = 16{,}384$ dimensions (Gemma Scope JumpReLU, 16k features). With $N_\text{train} = 1{,}600 \ll d$, the data-dependent term $\frac{1}{N} \tilde{X}^\top \text{diag}(s) \tilde{X}$ has rank $\leq 1{,}600$. This "ridge + low-rank" structure enables exact inversion via the Woodbury identity without forming the full $16{,}385 \times 16{,}385$ matrix.
+
+### Spectral Characterization
+
+| Property | Raw Space ($d = 2304$) | SAE Space ($d = 16384$) |
+|:---------|:----------------------:|:-----------------------:|
+| Hessian dimension | 2,305 | 16,385 |
+| $N_\text{train}$ | 1,600 | 1,600 |
+| $N_\text{train}/d$ ratio | ~0.69 | 0.098 |
+| Numerical rank | 2,305 (full) | 931 |
+| Effective rank (95%) | full | 3 |
+| Effective rank (99%) | full | 120 |
+| Eigenvalue range (data-dep.) | [16.2, 1639.7] | [$2.4 \times 10^{-8}$, 468] |
+| Condition (data-dep.) | 101 | $1.93 \times 10^{10}$ |
+| Condition (full $H$, $\lambda = 0.01$) | ~101 | $4.68 \times 10^4$ |
+
+Key findings: eigenvalue decay is extremely rapid ($\sigma_0^2 = 467.9$ captures 87.3% of spectral mass). Numerical rank 931 $\ll N_\text{train} = 1{,}600$: many training examples are linearly dependent in SAE space due to 99.9% sparsity.
+
+### Woodbury Inversion
+
+The Woodbury identity decomposes $H^{-1} = (\lambda I + U \Sigma U^\top)^{-1}$ using the eigendecomposition of the data-dependent term. Performance: ~22 ms/matvec, verification residual $1.06 \times 10^{-7}$, agreement with dense inverse at $10^{-12}$.
+
+### Adaptive Ridge Requirement
+
+With weight-decay-only regularization ($\lambda = 0.01$), the 15,454 null directions have $H^{-1}$ eigenvalue $= 1/\lambda = 100$, making the Rashomon ellipsoid infinite in practice. The bisection solver diverges (scale hits $2^{31}$). Adaptive ridge $\lambda = \sigma_\text{max}^2/100 + \lambda_\text{wd} \approx 4.69$ (condition $\approx 101$) yields finite robust deltas with mean robust/naive ratio 18.25$\times$ (vs ~1.45$\times$ in raw space). The larger ratio reflects the 15,000+ unconstrained directions in SAE space.
+
+## 7. SAE-Decoded Steering: Four-Way Factorial
+
+### Experimental Design
+
+A $2 \times 2$ factorial comparison: {naive, robust} $\times$ {raw, SAE$\to$raw}. All four deltas are evaluated against the **same** 50 raw-space Rashomon probes. SAE decode: $\delta_\text{raw} = \delta_\text{SAE} W_\text{dec}$ (bias cancels for perturbations). SAE Woodbury: rank 931, $\lambda_\text{adaptive} = 4.69$.
+
+### Results
+
+| Metric | Naive Raw | Robust Raw | Naive SAE$\to$Raw | Robust SAE$\to$Raw |
+|:-------|:---------:|:----------:|:-----------------:|:------------------:|
+| Mean $\|\delta\|$ | 2.13 | 6.93 | 0.42 | 2.54 |
+| Mean Rashomon Coverage | 40.0% | 100.0% | 9.4% | 13.6% |
+| 100% Coverage Rate | 0% | 100% | 0% | 0% |
+| Coverage / unit norm | 0.188 | 0.144 | 0.224 | 0.053 |
+
+### Factorial Decomposition
+
+**Space effect** (SAE$\to$raw vs raw): strongly negative ($-30.6$pp naive, $-86.4$pp robust). **Optimization effect** (robust vs naive): positive but asymmetric ($+60$pp raw, $+4.2$pp SAE). **Interaction**: $-55.8$pp. The SAE decode pathway neutralizes most of the benefit of robust optimization.
+
+### Root Cause
+
+The SAE decoder is not the geometric bottleneck (see Section 8). The problem is triple optimization mismatch:
+1. The SAE probe has different decision boundaries than the raw probe.
+2. The SAE optimizer minimizes $\|\delta_\text{SAE}\|$ rather than $\|\delta_\text{SAE} W_\text{dec}\|$.
+3. The SAE Hessian captures uncertainty about SAE probes, not raw probes.
+
+## 8. Decoder Column-Space Diagnostic
+
+### Motivation
+
+The 4-way factorial (Section 7) showed SAE-decoded coverage collapses. Is the decoder subspace too small, or is the optimizer pointing in the wrong direction?
+
+### $W_\text{dec}$ Spectral Properties
+
+| Property | Value |
+|:---------|------:|
+| Shape | [16384, 2304] |
+| Numerical rank | 2,304 / 2,304 (**full rank**) |
+| Condition number | 19.4 |
+| Effective rank (90% / 95% / 99%) | 1,630 / 1,898 / 2,191 |
+
+### Finding
+
+$\text{col}(W_\text{dec}) = \mathbb{R}^{2304}$: the decoder spans the entire raw activation space. Projecting raw-space robust deltas onto the column space is the identity -- zero energy loss, zero coverage loss. The 13.56% coverage from the 4-way prototype is **100% attributable to the SAE-space optimizer**, not subspace limitations.
+
+This sharpens the Section 7 root cause: the column space has every direction needed. The problem is that the SAE-space optimization pipeline (SAE probe + SAE Hessian + adaptive ridge) produces coefficients that, when decoded, point in the wrong direction.
+
+## 9. Feature Decomposition: Intrinsic Density in SAE Coordinates
+
+### Motivation
+
+Since the decoder subspace is not the bottleneck, and the SAE-space optimizer produces wrong coefficients, a natural question is: does the raw-space robust delta have a **sparse representation** in SAE coordinates? If so, we might post-hoc identify which SAE features implement the steering direction.
+
+### Three Decomposition Methods
+
+Given $\delta_\text{robust} \in \mathbb{R}^{2304}$, find $\alpha \in \mathbb{R}^{16384}$ such that $\alpha W_\text{dec} = \delta_\text{robust}$. Since $W_\text{dec}^\top$ has full row rank 2,304, the solution space is a 14,080-dimensional affine subspace -- many exact solutions exist.
+
+| Method | Significant Features | L1/L2 ratio | Top-20 Energy | Reconstruction Error |
+|:-------|:--------------------:|:-----------:|:-------------:|:--------------------:|
+| $\alpha_\text{pinv}$ (min-$\ell_2$) | 16,292 | 97.2 | 2.9% | $3.2 \times 10^{-14}$ |
+| $\alpha_\text{sparse}$ (min-$\ell_1$, FISTA) | 2,433 | 35.6 | 13.6% | $1.0 \times 10^{-3}$ |
+| $\Delta z$ (encoder) | 14.7 | 2.1 | 99.6% | 105% |
+
+### Key Findings
+
+1. **Min-$\ell_2$ is maximally dense**: the pseudoinverse spreads energy across the 14,080-dim null space. 16,292 of 16,384 features are significant.
+
+2. **Min-$\ell_1$ is 6.7$\times$ sparser but still distributed**: 2,433 significant features, top-20 captures only 13.6% of energy. Even the mathematically sparsest exact reconstruction requires thousands of features.
+
+3. **Encoder $\Delta z$ is sparse but not exact**: 14.7 mean features, top-5 captures 95.2% energy. But 105% reconstruction error -- the JumpReLU nonlinearity means $\Delta z \cdot W_\text{dec} \neq \delta$. This is "how the SAE perceives the perturbation," not an algebraic decomposition.
+
+4. **Features are example-independent**: Jaccard similarity = 1.000 across all example pairs for both $\alpha_\text{pinv}$ and $\alpha_\text{sparse}$. All robust deltas point along the probe weight vector $w$; the SAE decomposition of this fixed direction yields a fixed feature pattern.
+
+5. **SAE optimizer was nearly orthogonal to the correct answer**: $\cos(\delta_\text{SAE}, \alpha_\text{pinv}) = 0.091$, $\cos(\delta_\text{SAE}, \alpha_\text{sparse}) = 0.081$. Zero overlap in top-20 features.
+
+### Verdict
+
+**Case (b): the decomposition is intrinsically distributed.** The robust delta cannot be explained by a handful of SAE features. Interpretable sparse steering would require $\ell_1$-penalized robust optimization -- explicitly trading Rashomon coverage for sparsity. The Pareto frontier between coverage and sparsity is an open question.
+
+## 10. Limitations and Next Steps
+
+### Updated Limitations (Additions to Section 5)
+
+- **SAE-space steering is not viable in its current form.** SAE-decoded deltas achieve only 9--14% Rashomon coverage. The optimization target mismatch (SAE probe/Hessian vs raw probe/Hessian) is the root cause, not the decoder geometry.
+- **The robust delta has no sparse SAE interpretation.** Even under $\ell_1$ minimization, ~2,433 features are needed. Post-hoc decomposition cannot provide interpretability.
+
+### Candidate Next Directions
+
+- **$\ell_1$-penalized robust optimization**: jointly optimize for Rashomon coverage and SAE sparsity. The key open question is the Pareto frontier -- how much coverage must be sacrificed for a 20--50 feature decomposition?
+- **Encoder-based analysis**: the encoder $\Delta z$ is extremely sparse (~15 features) and may offer a complementary "perceptual" notion of interpretability, even though it is not algebraically exact.
+- **End-to-end generation evaluation**: inject robust $\delta$ into the Gemma-2 forward pass and measure safety (refusal rate) alongside fluency (perplexity, coherence).
+- **Multi-layer analysis**: repeat at layers 10, 15, 20 to study how the Rashomon effect and steering cost vary with depth.
+- **Scale to full dataset**: move from 2,000 to full BeaverTails (~330k) to assess whether the Rashomon effect persists or diminishes with more data.
+
 ---
 
-*Appendix: Full per-probe loss metrics are available in `outputs/probe_loss_analysis.csv` (51 rows, 11 columns). Hessian eigenvalue spectrum details are in `outputs/hessian_layer10.pt`.*
+*Appendix: Full per-probe loss metrics are available in `outputs/probe_loss_analysis.csv` (51 rows, 11 columns). Hessian eigenvalue spectrum details are in `outputs/hessian_layer10.pt`. SAE steering prototype results are in `outputs/sae_steering_prototype_report.txt`. Decoder diagnostic results are in `outputs/decoder_subspace_diagnostic.txt`. Feature decomposition results are in `outputs/sae_feature_decomposition_report.txt`.*
