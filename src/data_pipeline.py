@@ -8,11 +8,17 @@ from sklearn.model_selection import train_test_split
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 
-def load_balanced_beavertails(n_per_class=1000, seed=42):
+def load_balanced_beavertails(n_per_class=1000, seed=42, return_metadata=False):
     """Load BeaverTails and return a balanced subset with train/test split.
 
+    Args:
+        n_per_class: Number of safe/unsafe responses to sample.
+        seed: RNG seed controlling sampling and the train/test split.
+        return_metadata: If True, also return metadata dicts aligned with the
+            train/test splits (prompt, dataset index, etc.).
+
     Returns:
-        train_texts, test_texts, train_labels, test_labels
+        train_texts, test_texts, train_labels, test_labels[, train_meta, test_meta]
     """
     print("Loading BeaverTails dataset (330k_train split) ...")
     ds = load_dataset("PKU-Alignment/BeaverTails", split="330k_train")
@@ -26,14 +32,38 @@ def load_balanced_beavertails(n_per_class=1000, seed=42):
     unsafe_sample = rng.choice(unsafe_idx, size=min(n_per_class, len(unsafe_idx)), replace=False)
 
     indices = np.concatenate([safe_sample, unsafe_sample])
-    texts = [ds[int(i)]["response"] for i in indices]
-    labels = [1] * len(safe_sample) + [0] * len(unsafe_sample)
+    records = []
+    for idx in indices:
+        rec = ds[int(idx)]
+        records.append({
+            "text": rec["response"],
+            "label": 1 if rec["is_safe"] else 0,
+            "prompt": rec.get("prompt", ""),
+            "dataset_index": int(idx),
+            "metadata": rec,
+        })
+
+    texts = [r["text"] for r in records]
+    labels = [r["label"] for r in records]
     print(f"Sampled {len(safe_sample)} safe + {len(unsafe_sample)} unsafe = {len(texts)} total")
 
-    train_texts, test_texts, train_labels, test_labels = train_test_split(
-        texts, labels, test_size=0.2, random_state=seed, stratify=labels,
+    all_idx = np.arange(len(records))
+    train_idx, test_idx = train_test_split(
+        all_idx, test_size=0.2, random_state=seed, stratify=labels,
     )
+
+    train_texts = [records[i]["text"] for i in train_idx]
+    test_texts = [records[i]["text"] for i in test_idx]
+    train_labels = [records[i]["label"] for i in train_idx]
+    test_labels = [records[i]["label"] for i in test_idx]
+
     print(f"Train: {len(train_texts)} | Test: {len(test_texts)}")
+
+    if return_metadata:
+        train_meta = [records[i] for i in train_idx]
+        test_meta = [records[i] for i in test_idx]
+        return train_texts, test_texts, train_labels, test_labels, train_meta, test_meta
+
     return train_texts, test_texts, train_labels, test_labels
 
 

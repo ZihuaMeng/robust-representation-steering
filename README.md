@@ -114,8 +114,13 @@ robust-representation-steering/
 │   ├── run_awp_rashomon.py       # Step 2: AWP Rashomon enumeration
 │   ├── run_sae_pipeline.py       # Step 3: SAE projection + AWP
 │   ├── run_robust_steering.py    # Step 4: robust vs naive steering
-│   ├── analyze_probe_losses.py   # Step 5: train/val/test generalization
-│   └── generate_figures.py       # Step 6: publication figures
+│   ├── run_steering_inference.py # NEW: decode steered completions for eval
+│   ├── evaluate_steering_local.py# NEW: LM-judge scoring (fluency, safety)
+│   ├── analyze_probe_losses.py   # Train/val/test generalization
+│   └── generate_figures.py       # Publication figures
+├── src/
+│   ├── judges/                   # Local judge implementations
+│   └── eval/                     # Steering aggregation helpers
 ├── outputs/                      # Experiment artifacts (.pt files gitignored)
 │   ├── technical_summary.md      # Full technical report
 │   ├── probe_loss_analysis.csv   # Per-probe loss table (51 rows)
@@ -152,10 +157,21 @@ python scripts/run_sae_pipeline.py
 # Step 4: Robust vs naive steering comparison
 python scripts/run_robust_steering.py
 
-# Step 5: Train/val/test generalization analysis (CPU)
+# Step 5: Decode steered completions (writes outputs/steering_candidates/)
+python scripts/run_steering_inference.py --methods naive robust --max-examples 25
+
+# Step 6: Score with a local LM judge (per-method)
+python scripts/evaluate_steering_local.py \
+  --candidates outputs/steering_candidates/robust_steering.jsonl \
+  --method robust --judge-model Qwen/Qwen2.5-1.5B-Instruct
+
+# Step 7: Aggregate steering tables
+python -m eval.steering_tables --evaluate-dir outputs/evaluate
+
+# Step 8: Train/val/test generalization analysis (CPU)
 python scripts/analyze_probe_losses.py
 
-# Step 6: Generate figures (CPU)
+# Step 9: Generate figures (CPU)
 python scripts/generate_figures.py
 ```
 
