@@ -163,7 +163,7 @@ python scripts/run_steering_inference.py --methods naive robust --max-examples 2
 # Step 6: Score with a local LM judge (per-method)
 python scripts/evaluate_steering_local.py \
   --candidates outputs/steering_candidates/robust_steering.jsonl \
-  --method robust --judge-model Qwen/Qwen2.5-1.5B-Instruct
+  --method robust --judge-model Qwen/Qwen2.5-7B-Instruct
 
 # Step 7: Aggregate steering tables
 python -m eval.steering_tables --evaluate-dir outputs/evaluate

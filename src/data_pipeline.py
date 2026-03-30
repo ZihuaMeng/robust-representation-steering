@@ -67,16 +67,25 @@ def load_balanced_beavertails(n_per_class=1000, seed=42, return_metadata=False):
     return train_texts, test_texts, train_labels, test_labels
 
 
-def extract_activations(texts, model, tokenizer, layer_idx=10, batch_size=8):
-    """Extract mean-pooled residual stream activations at a given layer.
+def extract_activations(texts, model, tokenizer, layer_idx=10, batch_size=8,
+                        pooling="mean", labels=None):
+    """Extract residual stream activations at a given layer.
 
     HuggingFace hidden_states tuple has length (num_layers + 1).
     Index 0 = embedding output; index k = output after transformer block k.
 
+    Args:
+        pooling: "mean" — mean-pool over non-padding tokens (one vec per sequence).
+                 "last" — last non-padding token (one vec per sequence).
+                 "all"  — every non-padding token position (one vec per token).
+                          Requires `labels` to be passed; returns (activations, expanded_labels).
+
     Returns:
-        Tensor of shape [len(texts), hidden_dim]
+        pooling="mean"/"last": Tensor of shape [len(texts), hidden_dim]
+        pooling="all":         (Tensor [N_tokens, hidden_dim], Tensor [N_tokens])
     """
     all_vecs = []
+    all_labels = [] if pooling == "all" else None
     n_batches = (len(texts) + batch_size - 1) // batch_size
     t0 = time.time()
 
@@ -94,9 +103,23 @@ def extract_activations(texts, model, tokenizer, layer_idx=10, batch_size=8):
             outputs = model(**inputs, output_hidden_states=True)
 
         hidden = outputs.hidden_states[layer_idx]  # [B, seq_len, hidden_dim]
-        mask = inputs["attention_mask"].unsqueeze(-1)  # [B, seq_len, 1]
-        pooled = (hidden * mask).sum(dim=1) / mask.sum(dim=1)  # [B, hidden_dim]
-        all_vecs.append(pooled.cpu().float())
+        mask = inputs["attention_mask"]             # [B, seq_len]
+
+        if pooling == "mean":
+            pooled = (hidden * mask.unsqueeze(-1)).sum(dim=1) / mask.sum(dim=1, keepdim=True)
+            all_vecs.append(pooled.cpu().float())
+        elif pooling == "last":
+            last_idx = mask.sum(dim=1) - 1  # index of last non-padding token
+            pooled = hidden[torch.arange(hidden.size(0)), last_idx]
+            all_vecs.append(pooled.cpu().float())
+        elif pooling == "all":
+            batch_size_actual = hidden.size(0)
+            for i in range(batch_size_actual):
+                n_tokens = mask[i].sum().item()
+                all_vecs.append(hidden[i, :n_tokens].cpu().float())
+                if labels is not None and all_labels is not None:
+                    seq_label = labels[b * batch_size + i]
+                    all_labels.extend([seq_label] * int(n_tokens))
 
         if (b + 1) % 25 == 0 or (b + 1) == n_batches:
             elapsed = time.time() - t0
@@ -104,6 +127,9 @@ def extract_activations(texts, model, tokenizer, layer_idx=10, batch_size=8):
 
     result = torch.cat(all_vecs, dim=0)
     print(f"Extraction complete: {result.shape} in {time.time() - t0:.1f}s")
+
+    if pooling == "all":
+        return result, torch.tensor(all_labels, dtype=torch.long)
     return result
 
 

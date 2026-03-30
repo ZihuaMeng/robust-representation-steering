@@ -11,12 +11,10 @@ import torch
 from hessian import compute_hessian
 from steering import naive_delta, robust_delta, robust_delta_dynamic, rashomon_coverage
 
+import argparse
+
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "..", "outputs")
-ACTIVATIONS_PATH = os.path.join(OUTPUT_DIR, "beavertails_activations_layer10.pt")
-BASELINE_PATH = os.path.join(OUTPUT_DIR, "baseline_probe_layer10.pt")
 RASHOMON_PROBES_PATH = os.path.join(OUTPUT_DIR, "rashomon", "rashomon_probes.pt")
-HESSIAN_PATH = os.path.join(OUTPUT_DIR, "hessian_layer10.pt")
-REPORT_PATH = os.path.join(OUTPUT_DIR, "steering_comparison_report.txt")
 
 EPSILON = 0.15
 THRESHOLD = 0.0  # logit threshold (sigmoid(0) = 0.5)
@@ -24,15 +22,24 @@ MAX_EXAMPLES = 50
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--pooling", default="mean", choices=["mean", "last", "all"],
+                        help="Pooling mode used during activation extraction.")
+    args = parser.parse_args()
+
+    activations_path = os.path.join(OUTPUT_DIR, f"beavertails_activations_layer10_{args.pooling}.pt")
+    baseline_path = os.path.join(OUTPUT_DIR, f"baseline_probe_layer10_{args.pooling}.pt")
+    hessian_path = os.path.join(OUTPUT_DIR, f"hessian_layer10_{args.pooling}.pt")
+    report_path = os.path.join(OUTPUT_DIR, f"steering_comparison_report_{args.pooling}.txt")
     t_start = time.time()
 
     # ── Load data ────────────────────────────────────────────────────────
     print("Loading data ...")
-    data = torch.load(ACTIVATIONS_PATH, map_location="cpu", weights_only=False)
+    data = torch.load(activations_path, map_location="cpu", weights_only=False)
     train_X, train_y = data["train_X"], data["train_y"]
     test_X, test_y = data["test_X"], data["test_y"]
 
-    baseline = torch.load(BASELINE_PATH, map_location="cpu", weights_only=False)
+    baseline = torch.load(baseline_path, map_location="cpu", weights_only=False)
     w = baseline["weight"].double()
     b = baseline["bias"].double()
 
@@ -53,8 +60,8 @@ def main():
     print(f"\nUsing adaptive ridge = {ridge:.4f} (target condition ≈ {target_cond})")
 
     H, H_inv, eig_info = compute_hessian(w, b, train_X, train_y, ridge=ridge)
-    torch.save({"H": H, "H_inv": H_inv, "eig_info": eig_info, "ridge": ridge}, HESSIAN_PATH)
-    print(f"Hessian saved to {HESSIAN_PATH}")
+    torch.save({"H": H, "H_inv": H_inv, "eig_info": eig_info, "ridge": ridge}, hessian_path)
+    print(f"Hessian saved to {hessian_path}")
 
     # ── Phase 2+3: Steering deltas on unsafe examples ────────────────────
     print("\n" + "=" * 65)
@@ -210,9 +217,9 @@ def main():
     report = "\n".join(lines)
     print(report)
 
-    with open(REPORT_PATH, "w") as f:
+    with open(report_path, "w") as f:
         f.write(report)
-    print(f"Report saved to {REPORT_PATH}")
+    print(f"Report saved to {report_path}")
 
     elapsed = time.time() - t_start
     print(f"\nTotal time: {elapsed:.1f}s ({elapsed / 60:.1f} min)")

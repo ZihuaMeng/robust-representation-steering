@@ -1,0 +1,11 @@
+- /node_modules/**
+- /.git/**
+- /__pycache__/**
+- *.tmp
+- *.log
+- *.ipynb
+- .DS_Store
+- /.venv/**
+- *.pyc
+- *.csv
+- *.png

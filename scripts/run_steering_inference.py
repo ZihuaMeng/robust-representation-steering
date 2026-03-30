@@ -18,13 +18,10 @@ from steering import naive_delta, robust_delta, robust_delta_dynamic
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT_DIR = ROOT / "outputs"
-ACTIVATIONS_PATH = OUTPUT_DIR / "beavertails_activations_layer10.pt"
-BASELINE_PATH = OUTPUT_DIR / "baseline_probe_layer10.pt"
-HESSIAN_PATH = OUTPUT_DIR / "hessian_layer10.pt"
 
 
 class ResidualSteeringHook:
-    """Forward hook that adds a delta to all token positions at a transformer layer."""
+    """Forward hook that adds a delta to the final token at a transformer layer."""
 
     def __init__(self, model, layer_idx, delta):
         self.layer = model.model.layers[layer_idx]
@@ -37,7 +34,7 @@ class ResidualSteeringHook:
             if not torch.is_tensor(hidden):
                 return output
             hidden = hidden.clone()
-            hidden += self.delta
+            hidden[:, -1, :] += self.delta
             if isinstance(output, tuple):
                 return (hidden,) + output[1:]
             return hidden
@@ -51,11 +48,11 @@ class ResidualSteeringHook:
             self.handle = None
 
 
-def _load_data(seed, n_per_class):
+def _load_data(seed, n_per_class, activations_path):
     _, test_texts, _, test_labels, _, test_meta = load_balanced_beavertails(
         n_per_class=n_per_class, seed=seed, return_metadata=True,
     )
-    data = torch.load(ACTIVATIONS_PATH, map_location="cpu", weights_only=False)
+    data = torch.load(activations_path, map_location="cpu", weights_only=False)
     assert len(test_texts) == data["test_X"].shape[0], "Test split mismatch vs activations"
     return data, test_meta, torch.tensor(test_labels)
 
@@ -94,20 +91,24 @@ def _compute_delta(method, weight, bias, x, h_inv, epsilon, threshold):
 
 
 def run(args):
+    activations_path = OUTPUT_DIR / f"beavertails_activations_layer10_{args.pooling}.pt"
+    baseline_path = OUTPUT_DIR / f"baseline_probe_layer10_{args.pooling}.pt"
+    hessian_path = OUTPUT_DIR / f"hessian_layer10_{args.pooling}.pt"
+
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     out_dir = OUTPUT_DIR / "steering_candidates"
     out_dir.mkdir(exist_ok=True)
 
     print("Loading cached activations, baseline probe, and Hessian ...")
-    data, test_meta, test_labels = _load_data(args.seed, args.n_per_class)
+    data, test_meta, test_labels = _load_data(args.seed, args.n_per_class, activations_path)
     test_X = data["test_X"].double()
     test_y = data["test_y"].long()
 
-    baseline = torch.load(BASELINE_PATH, map_location="cpu", weights_only=False)
+    baseline = torch.load(baseline_path, map_location="cpu", weights_only=False)
     weight = baseline["weight"].double()
     bias = baseline["bias"].double()
 
-    hessian = torch.load(HESSIAN_PATH, map_location="cpu", weights_only=False)
+    hessian = torch.load(hessian_path, map_location="cpu", weights_only=False)
     H_inv = hessian["H_inv"].double()
 
     print("Loading Gemma model for generation ...")
@@ -201,6 +202,8 @@ def parse_args():
     parser.add_argument("--methods", nargs="+", default=["naive", "robust"],
                         choices=["naive", "robust", "dynamic"],
                         help="Steering methods to evaluate.")
+    parser.add_argument("--pooling", default="mean", choices=["mean", "last", "all"],
+                        help="Pooling mode matching the probe training (mean/last/all).")
     parser.add_argument("--model-name", default="google/gemma-2-2b",
                         help="Base model to decode with.")
     parser.add_argument("--layer-idx", type=int, default=10,
