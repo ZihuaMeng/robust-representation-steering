@@ -52,7 +52,9 @@ def _worst_theta_local(x_aug, theta, H_inv, epsilon):
     if denom.item() == 0.0:
         return theta
     direction = (H_inv @ x_aug) / denom
-    return theta - torch.sqrt(torch.tensor(2.0 * epsilon, dtype=x_aug.dtype)) * direction
+    return (
+        theta - torch.sqrt(torch.tensor(2.0 * epsilon, dtype=x_aug.dtype)) * direction
+    )
 
 
 def robust_delta(weight, bias, x, H_inv, epsilon, threshold=0.0):
@@ -103,11 +105,19 @@ def robust_delta(weight, bias, x, H_inv, epsilon, threshold=0.0):
 
 
 def robust_delta_dynamic(
-    weight, bias, x, H_inv, epsilon, threshold=0.0,
-    max_iters=200, lr=5e-2, robustness_weight=1.0, proximity_weight=1e-2,
+    weight,
+    bias,
+    x,
+    H_inv,
+    epsilon,
+    threshold=0.0,
+    max_iters=1000,
+    lr=5e-3,
+    robustness_weight=1.0,
+    proximity_weight=1e-2,
     tol=1e-8,
 ):
-    """Dynamic robust steering with Adam and local worst-case probes.
+    """Dynamic robust steering with SGD and local worst-case probes.
 
     Mirrors the continuous optimization style: at each step, compute the local
     worst probe at x+delta, optimize a robust hinge objective plus proximity
@@ -120,7 +130,7 @@ def robust_delta_dynamic(
     theta = torch.cat([weight, bias.unsqueeze(0)])  # [d+1]
     one = torch.ones(1, dtype=x.dtype)
     delta = d_naive.clone().detach().requires_grad_(True)
-    optimizer = torch.optim.Adam([delta], lr=lr)
+    optimizer = torch.optim.SGD([delta], lr=lr)
 
     best_delta = None
     best_norm = float("inf")
