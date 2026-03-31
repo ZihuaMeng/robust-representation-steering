@@ -57,9 +57,18 @@ def _load_data(seed, n_per_class, activations_path):
     return data, test_meta, torch.tensor(test_labels)
 
 
-def _generate(model, tokenizer, prompt, max_new_tokens, temperature, top_p, delta=None, layer_idx=10):
+def _generate(model, tokenizer, prompt, max_new_tokens, temperature, top_p,
+              delta=None, layer_idx=10, apply_chat_template=False):
     device = model.device
-    inputs = tokenizer(prompt, return_tensors="pt").to(device)
+    if apply_chat_template:
+        formatted = tokenizer.apply_chat_template(
+            [{"role": "user", "content": prompt}],
+            tokenize=False,
+            add_generation_prompt=True,
+        )
+    else:
+        formatted = prompt
+    inputs = tokenizer(formatted, return_tensors="pt").to(device)
     gen_kwargs = {
         "max_new_tokens": max_new_tokens,
         "temperature": temperature,
@@ -78,7 +87,7 @@ def _generate(model, tokenizer, prompt, max_new_tokens, temperature, top_p, delt
     return tokenizer.decode(gen_tokens, skip_special_tokens=True).strip()
 
 
-def _compute_delta(method, weight, bias, x, h_inv, epsilon, threshold):
+def _compute_delta(method, weight, bias, x, h_inv, epsilon, threshold, reverse=False):
     if method == "naive":
         d, _ = naive_delta(weight, bias, x, threshold)
     elif method == "robust":
@@ -87,16 +96,18 @@ def _compute_delta(method, weight, bias, x, h_inv, epsilon, threshold):
         d = robust_delta_dynamic(weight, bias, x, h_inv, epsilon, threshold)
     else:
         raise ValueError(f"Unknown method: {method}")
-    return d
+    return -d if reverse else d
 
 
 def run(args):
-    activations_path = OUTPUT_DIR / f"beavertails_activations_layer10_{args.pooling}.pt"
-    baseline_path = OUTPUT_DIR / f"baseline_probe_layer10_{args.pooling}.pt"
-    hessian_path = OUTPUT_DIR / f"hessian_layer10_{args.pooling}.pt"
+    sfx = "" if args.model_variant == "pt" else f"_{args.model_variant}"
+    activations_path = OUTPUT_DIR / f"beavertails_activations_layer10_{args.pooling}{sfx}.pt"
+    baseline_path = OUTPUT_DIR / f"baseline_probe_layer10_{args.pooling}{sfx}.pt"
+    hessian_path = OUTPUT_DIR / f"hessian_layer10_{args.pooling}{sfx}.pt"
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    out_dir = OUTPUT_DIR / "steering_candidates"
+    rev_sfx = "_reverse" if args.reverse else ""
+    out_dir = OUTPUT_DIR / f"steering_candidates{sfx}{rev_sfx}"
     out_dir.mkdir(exist_ok=True)
 
     print("Loading cached activations, baseline probe, and Hessian ...")
@@ -148,11 +159,13 @@ def run(args):
             top_p=args.top_p,
             delta=None,
             layer_idx=args.layer_idx,
+            apply_chat_template=args.apply_chat_template,
         )
 
         x = test_X[i]
         for method in args.methods:
-            delta = _compute_delta(method, weight, bias, x, H_inv, args.epsilon, args.threshold)
+            delta = _compute_delta(method, weight, bias, x, H_inv, args.epsilon, args.threshold,
+                                   reverse=args.reverse)
             steered_text = _generate(
                 model, tokenizer, prompt,
                 max_new_tokens=args.max_new_tokens,
@@ -160,6 +173,7 @@ def run(args):
                 top_p=args.top_p,
                 delta=delta,
                 layer_idx=args.layer_idx,
+                apply_chat_template=args.apply_chat_template,
             )
             records[method].append({
                 "example_id": i,
@@ -205,7 +219,13 @@ def parse_args():
     parser.add_argument("--pooling", default="mean", choices=["mean", "last", "all"],
                         help="Pooling mode matching the probe training (mean/last/all).")
     parser.add_argument("--model-name", default="google/gemma-2-2b",
-                        help="Base model to decode with.")
+                        help="HuggingFace model to decode with.")
+    parser.add_argument("--model-variant", default="pt",
+                        help="Variant tag for selecting artifact files (e.g. 'pt' or 'it').")
+    parser.add_argument("--apply-chat-template", action="store_true",
+                        help="Wrap prompts in the tokenizer's chat template (required for instruct models).")
+    parser.add_argument("--reverse", action="store_true",
+                        help="Negate the steering delta (push toward unsafe rather than safe).")
     parser.add_argument("--layer-idx", type=int, default=10,
                         help="Residual layer index for steering (default=10).")
     parser.add_argument("--epsilon", type=float, default=0.15,

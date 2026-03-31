@@ -37,12 +37,19 @@ class JumpReLUSAE(nn.Module):
         return self.decode(z)
 
 
-def load_gemma_scope_sae(layer=10, width="16k", l0=77):
+def load_gemma_scope_sae(layer=10, width="16k", l0=77, model_type="pt"):
     """Download and load a Gemma Scope SAE from HuggingFace.
+
+    Args:
+        model_type: "pt" for base model (gemma-scope-2b-pt-res),
+                    "it" for instruct model (gemma-scope-2b-it-res).
 
     Returns a JumpReLUSAE module (on CPU, eval mode).
     """
-    repo = "google/gemma-scope-2b-pt-res"
+    _repos = {"pt": "google/gemma-scope-2b-pt-res", "it": "google/gemma-scope-2b-it-res"}
+    if model_type not in _repos:
+        raise ValueError(f"model_type must be 'pt' or 'it', got {model_type!r}")
+    repo = _repos[model_type]
     filename = f"layer_{layer}/width_{width}/average_l0_{l0}/params.npz"
     print(f"Downloading SAE: {repo} / {filename} ...")
     path = hf_hub_download(repo_id=repo, filename=filename)

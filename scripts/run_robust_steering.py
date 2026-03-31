@@ -14,27 +14,39 @@ from steering import naive_delta, robust_delta, robust_delta_dynamic, rashomon_c
 import argparse
 
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "..", "outputs")
-RASHOMON_PROBES_PATH = os.path.join(OUTPUT_DIR, "rashomon", "rashomon_probes.pt")
 
 EPSILON = 0.15
 THRESHOLD = 0.0  # logit threshold (sigmoid(0) = 0.5)
 MAX_EXAMPLES = 50
 
 
+def _cosine_similarity(u, v):
+    """Return cosine similarity between two vectors (0 if any is zero)."""
+    u_norm = torch.norm(u)
+    v_norm = torch.norm(v)
+    if u_norm.item() == 0.0 or v_norm.item() == 0.0:
+        return 0.0
+    return torch.dot(u.view(-1), v.view(-1)).item() / (u_norm.item() * v_norm.item())
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--pooling", default="mean", choices=["mean", "last", "all"],
                         help="Pooling mode used during activation extraction.")
+    parser.add_argument("--model-variant", default="pt",
+                        help="Model variant tag matching activation/probe files (e.g. 'pt' or 'it').")
     parser.add_argument(
         "--target-cond", type=float, default=100.0,
         help="Desired condition number when calibrating the Hessian ridge term."
     )
     args = parser.parse_args()
 
-    activations_path = os.path.join(OUTPUT_DIR, f"beavertails_activations_layer10_{args.pooling}.pt")
-    baseline_path = os.path.join(OUTPUT_DIR, f"baseline_probe_layer10_{args.pooling}.pt")
-    hessian_path = os.path.join(OUTPUT_DIR, f"hessian_layer10_{args.pooling}.pt")
-    report_path = os.path.join(OUTPUT_DIR, f"steering_comparison_report_{args.pooling}.txt")
+    sfx = "" if args.model_variant == "pt" else f"_{args.model_variant}"
+    activations_path = os.path.join(OUTPUT_DIR, f"beavertails_activations_layer10_{args.pooling}{sfx}.pt")
+    baseline_path = os.path.join(OUTPUT_DIR, f"baseline_probe_layer10_{args.pooling}{sfx}.pt")
+    hessian_path = os.path.join(OUTPUT_DIR, f"hessian_layer10_{args.pooling}{sfx}.pt")
+    rashomon_probes_path = os.path.join(OUTPUT_DIR, f"rashomon{sfx}", "rashomon_probes.pt")
+    report_path = os.path.join(OUTPUT_DIR, f"steering_comparison_report_{args.pooling}{sfx}.txt")
     t_start = time.time()
 
     # ── Load data ────────────────────────────────────────────────────────
@@ -47,7 +59,7 @@ def main():
     w = baseline["weight"].double()
     b = baseline["bias"].double()
 
-    rashomon_probes = torch.load(RASHOMON_PROBES_PATH, map_location="cpu", weights_only=False)
+    rashomon_probes = torch.load(rashomon_probes_path, map_location="cpu", weights_only=False)
     print(f"Loaded {len(rashomon_probes)} Rashomon probes")
 
     # ── Phase 1: Hessian ─────────────────────────────────────────────────
@@ -96,6 +108,10 @@ def main():
         d_dynamic = robust_delta_dynamic(w, b, x, H_inv, EPSILON, THRESHOLD)
         norm_dynamic = d_dynamic.norm().item()
 
+        cos_naive_robust = _cosine_similarity(d_naive, d_robust)
+        cos_naive_dynamic = _cosine_similarity(d_naive, d_dynamic)
+        cos_robust_dynamic = _cosine_similarity(d_robust, d_dynamic)
+
         n_cov_naive, n_total, frac_naive = rashomon_coverage(
             d_naive, x, rashomon_probes, THRESHOLD,
         )
@@ -119,6 +135,9 @@ def main():
             "frac_naive": frac_naive,
             "frac_robust": frac_robust,
             "frac_dynamic": frac_dynamic,
+            "cos_naive_robust": cos_naive_robust,
+            "cos_naive_dynamic": cos_naive_dynamic,
+            "cos_robust_dynamic": cos_robust_dynamic,
         })
 
         if (i + 1) % 10 == 0 or i == 0:
@@ -126,7 +145,9 @@ def main():
                   f"||d_naive||={norm_naive:.4f}  ||d_robust||={norm_robust:.4f}  "
                   f"||d_dynamic||={norm_dynamic:.4f}  "
                   f"cov_naive={n_cov_naive}/{n_total}  cov_robust={n_cov_robust}/{n_total}  "
-                  f"cov_dynamic={n_cov_dynamic}/{n_total}")
+                  f"cov_dynamic={n_cov_dynamic}/{n_total}  "
+                  f"cos(n,r)={cos_naive_robust:.3f}  cos(n,d)={cos_naive_dynamic:.3f}  "
+                  f"cos(r,d)={cos_robust_dynamic:.3f}")
 
     # ── Phase 4: Report ──────────────────────────────────────────────────
     print("\n" + "=" * 65)
@@ -144,6 +165,9 @@ def main():
     full_cov_dynamic = sum(1 for r in results if r["cov_dynamic"] == r["n_probes"]) / len(results)
     norm_ratio = mean_norm_robust / mean_norm_naive if mean_norm_naive > 0 else float("inf")
     norm_ratio_dynamic = mean_norm_dynamic / mean_norm_naive if mean_norm_naive > 0 else float("inf")
+    mean_cos_nr = sum(r["cos_naive_robust"] for r in results) / len(results)
+    mean_cos_nd = sum(r["cos_naive_dynamic"] for r in results) / len(results)
+    mean_cos_rd = sum(r["cos_robust_dynamic"] for r in results) / len(results)
 
     lines = [
         "=" * 75,
@@ -183,6 +207,9 @@ def main():
         f"  Mean ||delta_dynamic||:      {mean_norm_dynamic:.4f}",
         f"  Robust/Naive norm ratio:     {norm_ratio:.2f}x",
         f"  Dynamic/Naive norm ratio:    {norm_ratio_dynamic:.2f}x",
+        f"  Mean cos(n, r):              {mean_cos_nr:.3f}",
+        f"  Mean cos(n, d):              {mean_cos_nd:.3f}",
+        f"  Mean cos(r, d):              {mean_cos_rd:.3f}",
         "",
         f"  Mean Rashomon coverage (naive):  {mean_cov_naive:.2%}",
         f"  Mean Rashomon coverage (robust): {mean_cov_robust:.2%}",

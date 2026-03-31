@@ -15,9 +15,6 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 from awp import run_awp_rashomon, compute_val_loss
 
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "..", "outputs")
-RASHOMON_DIR = os.path.join(OUTPUT_DIR, "rashomon")
-ACTIVATIONS_TEMPLATE = "beavertails_activations_layer10_{pooling}.pt"
-BASELINE_TEMPLATE = "baseline_probe_layer10_{pooling}.pt"
 ACTIVATIONS_LEGACY = "beavertails_activations_layer10.pt"
 BASELINE_LEGACY = "baseline_probe_layer10.pt"
 
@@ -54,16 +51,25 @@ def main():
         "--pooling", default="mean", choices=["mean", "last", "all"],
         help="Pooling mode used when caching activations/baseline probes."
     )
+    parser.add_argument(
+        "--model-variant", default="pt",
+        help="Model variant tag matching the one used in train_baseline_probe.py (e.g. 'pt' or 'it').",
+    )
     args = parser.parse_args()
 
+    sfx = "" if args.model_variant == "pt" else f"_{args.model_variant}"
+    rashomon_dir = os.path.join(OUTPUT_DIR, f"rashomon{sfx}")
+    activations_template = f"beavertails_activations_layer10_{{pooling}}{sfx}.pt"
+    baseline_template = f"baseline_probe_layer10_{{pooling}}{sfx}.pt"
+
     t_start = time.time()
-    os.makedirs(RASHOMON_DIR, exist_ok=True)
+    os.makedirs(rashomon_dir, exist_ok=True)
 
     activations_path = _resolve_cached_path(
-        ACTIVATIONS_TEMPLATE, ACTIVATIONS_LEGACY, args.pooling, "Activations"
+        activations_template, ACTIVATIONS_LEGACY, args.pooling, "Activations"
     )
     baseline_path = _resolve_cached_path(
-        BASELINE_TEMPLATE, BASELINE_LEGACY, args.pooling, "Baseline probe"
+        baseline_template, BASELINE_LEGACY, args.pooling, "Baseline probe"
     )
 
     # ── Load data ────────────────────────────────────────────────────────
@@ -213,35 +219,35 @@ def main():
 
     # ── Save artifacts ───────────────────────────────────────────────────
     # 1. Probe weights
-    torch.save(probes, os.path.join(RASHOMON_DIR, "rashomon_probes.pt"))
+    torch.save(probes, os.path.join(rashomon_dir, "rashomon_probes.pt"))
 
     # 2. Report
-    with open(os.path.join(RASHOMON_DIR, "rashomon_report.txt"), "w") as f:
+    with open(os.path.join(rashomon_dir, "rashomon_report.txt"), "w") as f:
         f.write(report_text)
 
     # 3. Hamming matrix CSV
     labels = ["baseline"] + [f"awp_{i+1}" for i in range(n_probes)]
-    with open(os.path.join(RASHOMON_DIR, "hamming_matrix.csv"), "w", newline="") as f:
+    with open(os.path.join(rashomon_dir, "hamming_matrix.csv"), "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow([""] + labels)
         for i, label in enumerate(labels):
             writer.writerow([label] + [f"{hamming[i, j].item():.4f}" for j in range(n_total)])
 
     # 4. Cosine similarity matrix CSV
-    with open(os.path.join(RASHOMON_DIR, "cosine_similarity_matrix.csv"), "w", newline="") as f:
+    with open(os.path.join(rashomon_dir, "cosine_similarity_matrix.csv"), "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow([""] + labels)
         for i, label in enumerate(labels):
             writer.writerow([label] + [f"{cosine[i, j].item():.6f}" for j in range(n_total)])
 
     # 5. Per-probe metrics CSV
-    with open(os.path.join(RASHOMON_DIR, "per_probe_metrics.csv"), "w", newline="") as f:
+    with open(os.path.join(rashomon_dir, "per_probe_metrics.csv"), "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=["probe", "accuracy", "precision", "recall", "f1"])
         writer.writeheader()
         for m in per_probe_metrics:
             writer.writerow({k: f"{v:.4f}" if isinstance(v, float) else v for k, v in m.items()})
 
-    print(f"Artifacts saved to {RASHOMON_DIR}/")
+    print(f"Artifacts saved to {rashomon_dir}/")
     elapsed = time.time() - t_start
     print(f"Total time: {elapsed:.1f}s ({elapsed / 60:.1f} min)")
     print("RASHOMON PIPELINE COMPLETE")

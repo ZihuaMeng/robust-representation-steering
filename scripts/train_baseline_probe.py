@@ -8,6 +8,7 @@ import argparse
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 import torch
+from transformers import AutoTokenizer
 from data_pipeline import (
     load_balanced_beavertails,
     load_model_and_tokenizer,
@@ -19,23 +20,52 @@ LAYER_IDX = 10
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "..", "outputs")
 
 
+def _fmt_chat(tokenizer, meta):
+    """Format a BeaverTails record as an instruct chat string."""
+    return tokenizer.apply_chat_template(
+        [
+            {"role": "user", "content": meta["prompt"]},
+            {"role": "assistant", "content": meta["text"]},
+        ],
+        tokenize=False,
+        add_generation_prompt=False,
+    )
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--pooling", default="mean", choices=["mean", "last", "all"],
                         help="How to pool token activations: mean, last token, or all tokens.")
+    parser.add_argument("--model-name", default="google/gemma-2-2b",
+                        help="HuggingFace model to extract activations from.")
+    parser.add_argument("--model-variant", default="pt",
+                        help="Short tag appended to output file names (e.g. 'pt' or 'it').")
+    parser.add_argument("--apply-chat-template", action="store_true",
+                        help="Wrap each example in the tokenizer's chat template before "
+                             "extracting activations (required for instruct models).")
     args = parser.parse_args()
 
-    activations_path = os.path.join(OUTPUT_DIR, f"beavertails_activations_layer{LAYER_IDX}_{args.pooling}.pt")
-    probe_path = os.path.join(OUTPUT_DIR, f"baseline_probe_layer{LAYER_IDX}_{args.pooling}.pt")
+    sfx = "" if args.model_variant == "pt" else f"_{args.model_variant}"
+    activations_path = os.path.join(OUTPUT_DIR, f"beavertails_activations_layer{LAYER_IDX}_{args.pooling}{sfx}.pt")
+    probe_path = os.path.join(OUTPUT_DIR, f"baseline_probe_layer{LAYER_IDX}_{args.pooling}{sfx}.pt")
 
     t_start = time.time()
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
     # ── 1. Data ──────────────────────────────────────────────────────────
-    train_texts, test_texts, train_labels, test_labels = load_balanced_beavertails()
+    if args.apply_chat_template:
+        # Load tokenizer early (just for template formatting, before GPU model load)
+        _tok = AutoTokenizer.from_pretrained(args.model_name)
+        train_texts, test_texts, train_labels, test_labels, train_meta, test_meta = \
+            load_balanced_beavertails(return_metadata=True)
+        train_texts = [_fmt_chat(_tok, m) for m in train_meta]
+        test_texts = [_fmt_chat(_tok, m) for m in test_meta]
+        del _tok
+    else:
+        train_texts, test_texts, train_labels, test_labels = load_balanced_beavertails()
 
     # ── 2. Model + activation extraction ─────────────────────────────────
-    model, tokenizer = load_model_and_tokenizer()
+    model, tokenizer = load_model_and_tokenizer(args.model_name)
 
     print(f"\nExtracting layer {LAYER_IDX} activations (train, pooling={args.pooling}) ...")
     if args.pooling == "all":
@@ -62,7 +92,7 @@ def main():
 
     print(f"\nActivation shapes — train: {train_X.shape}, test: {test_X.shape}")
     hidden_dim = train_X.shape[1]
-    print(f"Hidden dim: {hidden_dim} (expected 2304)")
+    print(f"Hidden dim: {hidden_dim}")
 
     # Save activations
     torch.save(
