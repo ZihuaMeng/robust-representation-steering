@@ -4,6 +4,7 @@ import sys
 import os
 import time
 import csv
+import argparse
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
@@ -15,8 +16,28 @@ from awp import run_awp_rashomon, compute_val_loss
 
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "..", "outputs")
 RASHOMON_DIR = os.path.join(OUTPUT_DIR, "rashomon")
-ACTIVATIONS_PATH = os.path.join(OUTPUT_DIR, "beavertails_activations_layer10.pt")
-BASELINE_PATH = os.path.join(OUTPUT_DIR, "baseline_probe_layer10.pt")
+ACTIVATIONS_TEMPLATE = "beavertails_activations_layer10_{pooling}.pt"
+BASELINE_TEMPLATE = "baseline_probe_layer10_{pooling}.pt"
+ACTIVATIONS_LEGACY = "beavertails_activations_layer10.pt"
+BASELINE_LEGACY = "baseline_probe_layer10.pt"
+
+
+def _resolve_cached_path(filename_template, legacy_name, pooling, label):
+    preferred = os.path.join(OUTPUT_DIR, filename_template.format(pooling=pooling))
+    if os.path.exists(preferred):
+        return preferred
+
+    legacy = os.path.join(OUTPUT_DIR, legacy_name)
+    if os.path.exists(legacy):
+        print(
+            f"Warning: {label} file '{preferred}' not found; "
+            f"falling back to legacy path '{legacy}'."
+        )
+        return legacy
+
+    raise FileNotFoundError(
+        f"{label} file not found. Expected '{preferred}' (or legacy '{legacy}')."
+    )
 
 
 def predict(weight, bias, X):
@@ -28,16 +49,30 @@ def predict(weight, bias, X):
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Enumerate Rashomon probes via AWP")
+    parser.add_argument(
+        "--pooling", default="mean", choices=["mean", "last", "all"],
+        help="Pooling mode used when caching activations/baseline probes."
+    )
+    args = parser.parse_args()
+
     t_start = time.time()
     os.makedirs(RASHOMON_DIR, exist_ok=True)
 
+    activations_path = _resolve_cached_path(
+        ACTIVATIONS_TEMPLATE, ACTIVATIONS_LEGACY, args.pooling, "Activations"
+    )
+    baseline_path = _resolve_cached_path(
+        BASELINE_TEMPLATE, BASELINE_LEGACY, args.pooling, "Baseline probe"
+    )
+
     # ── Load data ────────────────────────────────────────────────────────
     print("Loading cached activations and baseline probe ...")
-    data = torch.load(ACTIVATIONS_PATH, map_location="cpu", weights_only=False)
+    data = torch.load(activations_path, map_location="cpu", weights_only=False)
     train_X, train_y = data["train_X"], data["train_y"]
     test_X, test_y = data["test_X"], data["test_y"]
 
-    baseline = torch.load(BASELINE_PATH, map_location="cpu", weights_only=False)
+    baseline = torch.load(baseline_path, map_location="cpu", weights_only=False)
     baseline_w, baseline_b = baseline["weight"], baseline["bias"]
     print(f"Train: {train_X.shape}, Test: {test_X.shape}")
     print(f"Baseline test metrics: {baseline['test_metrics']}")
