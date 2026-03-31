@@ -25,6 +25,10 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--pooling", default="mean", choices=["mean", "last", "all"],
                         help="Pooling mode used during activation extraction.")
+    parser.add_argument(
+        "--target-cond", type=float, default=100.0,
+        help="Desired condition number when calibrating the Hessian ridge term."
+    )
     args = parser.parse_args()
 
     activations_path = os.path.join(OUTPUT_DIR, f"beavertails_activations_layer10_{args.pooling}.pt")
@@ -55,7 +59,9 @@ def main():
     H_raw, _, eig_raw = compute_hessian(w, b, train_X, train_y, ridge=1e-6)
     # Set ridge so condition number ≈ 100 (principled: regularize poorly-constrained
     # directions proportionally to the well-constrained ones)
-    target_cond = 100.0
+    target_cond = args.target_cond
+    if target_cond <= 0:
+        raise ValueError("--target-cond must be positive")
     ridge = eig_raw["eig_max"] / target_cond
     print(f"\nUsing adaptive ridge = {ridge:.4f} (target condition ≈ {target_cond})")
 
