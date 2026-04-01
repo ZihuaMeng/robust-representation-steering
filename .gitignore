@@ -32,7 +32,10 @@ outputs/rashomon_sae/*.pt
 !outputs/decoder_subspace_diagnostic.txt
 !outputs/sae_feature_decomposition_report.txt
 !outputs/implementation_memo.md
+!outputs/implementation_report.md
 !outputs/technical_summary.md
+!outputs/active_subspace_steering_report.txt
+!outputs/fluency_samples.txt
 
 # Local planning / working memory
 project_memory/

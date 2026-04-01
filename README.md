@@ -1,6 +1,6 @@
 # Rashomon-Robust Representation Steering
 
-**Safety probes with >99.9% cosine similarity disagree on up to 90% of predictions. We derive a closed-form fix -- and show why sparse autoencoder decomposition cannot simplify it.**
+**Safety probes with >99.9% cosine similarity disagree on up to 90% of predictions. We derive a closed-form fix -- and systematically show that SAE features amplify probe multiplicity but cannot serve as a steering basis.**
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 [![PyTorch 2.x](https://img.shields.io/badge/PyTorch-2.x-ee4c2c.svg)](https://pytorch.org/)
@@ -16,7 +16,8 @@
 | **Rashomon Effect** | 19.5% mean prediction disagreement (raw), **44.5%** (SAE) among probes with equivalent loss |
 | **Robust Steering** | **100% Rashomon coverage** vs 40% naive, at 3.25$\times$ norm cost |
 | **Generalization** | Pearson $r = 0.997$ between val and test loss -- the Rashomon bound transfers to held-out data |
-| **SAE-Decoded Steering** | **13.56% coverage** -- decoder spans $\mathbb{R}^{2304}$ (not the bottleneck); the SAE-space optimizer is |
+| **SAE-Decoded Steering** | **~13% coverage** across all tested variants -- full SAE, active-subspace, and K-sweep |
+| **Decoder Diagnostic** | Full rank (2,304/2,304) -- expressivity is not the bottleneck |
 | **Feature Decomposition** | Robust delta is intrinsically SAE-dense: **2,433 features** even under $\ell_1$ minimization |
 
 ---
@@ -82,9 +83,9 @@ We compute BCE loss on three disjoint splits (train subset $n = 1280$, val $n = 
 
 The ~0.14 val-test gap is a **constant offset** from the train/test distribution split, not probe-specific overfitting: the baseline shows the same gap, the standard deviation across probes is only 0.003, and val-test losses are near-perfectly rank-correlated. The validation-loss bound transfers reliably to held-out data.
 
-## SAE Space: Amplification, Not Resolution
+## SAE-Space Steering: A Systematic Investigation
 
-Can sparse autoencoders help? We run a 2$\times$2 factorial -- {naive, robust} $\times$ {raw, SAE$\to$raw} -- evaluating all four strategies against the same 50 raw-space Rashomon probes.
+Can sparse autoencoders provide a more interpretable basis for robust steering? We test this hypothesis through a sequence of experiments that progressively narrow the diagnosis -- from Hessian feasibility, through end-to-end evaluation, to three convergent diagnostics that identify the root cause.
 
 ### SAE-Space Hessian
 
@@ -97,7 +98,9 @@ The SAE-space Hessian ($d = 16{,}384$) has a fundamentally different spectral st
 | Effective rank (99%) | full | 120 |
 | Inversion method | Dense | Woodbury (~22 ms/matvec) |
 
-### Four-Way Steering Comparison
+### End-to-End SAE Steering
+
+We run a 2$\times$2 factorial -- {naive, robust} $\times$ {raw, SAE$\to$raw} -- evaluating all four strategies against the same 50 raw-space Rashomon probes.
 
 | Metric | Naive Raw | Robust Raw | Naive SAE$\to$Raw | Robust SAE$\to$Raw |
 |:-------|:---------:|:----------:|:-----------------:|:------------------:|
@@ -107,13 +110,37 @@ The SAE-space Hessian ($d = 16{,}384$) has a fundamentally different spectral st
 
 **Factorial decomposition.** The space effect (SAE$\to$raw vs raw) is strongly negative: $-30.6$pp naive, $-86.4$pp robust. The optimization effect (robust vs naive) is positive but asymmetric: $+60$pp in raw space, $+4.2$pp through SAE decode. The interaction ($-55.8$pp) shows that robust optimization is far more valuable in raw space -- the SAE decode pathway neutralizes most of the gain.
 
-### Decoder Subspace Diagnostic
+### Three Convergent Diagnostics
+
+Three independent experiments rule out three candidate explanations for the ~13% coverage ceiling, converging on a structural root cause.
+
+#### Decoder Column-Space Is Full-Rank
 
 The SAE decoder $W_\text{dec} \in \mathbb{R}^{16384 \times 2304}$ has **full numerical rank** (2,304/2,304), condition number 19.4. Its column space spans the entire raw activation space: $\text{col}(W_\text{dec}) = \mathbb{R}^{2304}$. Projecting raw-space robust deltas onto the column space preserves 100% of energy and 100% of coverage.
 
-**The bottleneck is the SAE-space optimizer, not the decoder subspace.** The SAE probe has different decision boundaries than the raw probe, and the SAE Hessian captures uncertainty about the wrong set of probes. The optimizer minimizes $\|\delta_\text{SAE}\|$ rather than $\|\delta_\text{SAE} W_\text{dec}\|$, finding the shortest path in SAE space instead of the shortest decoded path in raw space.
+**The bottleneck is not decoder expressivity.**
 
-## Feature Decomposition: Intrinsic Density
+#### Active-Subspace Restriction Does Not Help
+
+If the 16,384-dimensional SAE space contains ~13,000 always-inactive features, perhaps restricting to the active subspace would improve conditioning and coverage. We identify the $d_\text{active} = 3{,}209$ features active at least once across the dataset ($K = 1$ threshold) and repeat the full pipeline -- probe, Hessian, robust optimization -- in this restricted subspace.
+
+| | Raw | SAE (full) | SAE (active, $K = 1$) |
+|:--|:---:|:---:|:---:|
+| Naive coverage | 40.0% | 9.4% | 9.4% |
+| Robust coverage | **100.0%** | 13.6% | 13.3% |
+| Robust $\|\delta\|$ | 6.93 | 2.54 | 2.47 |
+
+A sweep over activation thresholds ($K = 1, 5, 10$; subspace dimensions $3{,}209 \to 382$) shows coverage pinned at 10--14% regardless of subspace size:
+
+| $K$ | $d_\text{active}$ | Robust Coverage | Robust $\|\delta\|$ |
+|:---:|:---------:|:---:|:---:|
+| 1 | 3,209 | 12.8% | 2.22 |
+| 5 | 1,117 | 13.4% | 3.76 |
+| 10 | 382 | 10.4% | 3.05 |
+
+**The bottleneck is not null-space dimensionality.**
+
+#### Robust Delta Is Intrinsically SAE-Dense
 
 If the robust delta cannot be computed in SAE space, can it at least be *explained* there? We decompose raw-space robust deltas into SAE features via three methods:
 
@@ -123,11 +150,17 @@ If the robust delta cannot be computed in SAE space, can it at least be *explain
 | Min-$\ell_1$ (FISTA) | **2,433** | 13.6% | $1.0 \times 10^{-3}$ |
 | Encoder $\Delta z$ | 14.7 | 99.6% | 105% (not exact) |
 
-**Verdict: Case (b) -- intrinsically distributed.** Even the sparsest exact decomposition (min-$\ell_1$) requires ~2,433 features, with top-20 capturing only 13.6% of energy. The robust delta is a fundamentally high-dimensional object in SAE coordinates. The encoder-based $\Delta z$ is sparse (14.7 features) but has >100% reconstruction error -- it represents "how the SAE perceives the perturbation," not an algebraic decomposition.
+Even the sparsest exact decomposition (min-$\ell_1$) requires ~2,433 features, with top-20 capturing only 13.6% of energy. Feature identity is example-independent: both algebraic methods target identical features across all examples (Jaccard = 1.000). The SAE-space optimizer's $\delta_\text{SAE}$ was nearly orthogonal to the correct decomposition (cosine $\approx 0.09$, zero top-20 feature overlap).
 
-Feature identity is example-independent: both algebraic methods target identical features across all examples (Jaccard = 1.000). The SAE-space optimizer's $\delta_\text{SAE}$ was nearly orthogonal to the correct decomposition (cosine $\approx 0.09$, zero top-20 feature overlap).
+**The bottleneck is not sparsity potential -- the robust delta is a fundamentally high-dimensional object in SAE coordinates.**
 
-**Interpretable sparse steering would require an $\ell_1$-penalized robust optimization** that explicitly trades Rashomon coverage for sparsity -- a genuinely different optimization objective, not a change in analysis.
+### Root Cause
+
+The three diagnostics converge: the decoder can express any raw-space direction, the active subspace retains the relevant features, and even the sparsest exact decomposition spans thousands of features. The ~13% coverage ceiling originates from **structural misalignment between SAE-space and raw-space probe decision boundaries**. The SAE probe converges to a different local minimum, the SAE Hessian captures uncertainty about the wrong set of probes, and the optimizer minimizes $\|\delta_\text{SAE}\|$ rather than $\|\delta_\text{SAE} W_\text{dec}\|$.
+
+Interpretable sparse steering would require an $\ell_1$-penalized robust optimization that explicitly trades Rashomon coverage for sparsity -- a genuinely different optimization objective, not a change in analysis.
+
+A fluency pilot (5 examples $\times$ 3 conditions) confirms that steering at norms up to ~10 preserves text coherence in the Gemma-2 2B base model, though meaningful refusal evaluation requires an instruction-tuned model.
 
 ## Method Overview
 
@@ -147,6 +180,9 @@ BeaverTails (1000 safe + 1000 unsafe)
         -> Decoder column-space diagnostic (full rank)
         -> Feature decomposition (L2 / L1 / encoder)
           -> Verdict: intrinsically SAE-dense
+        -> Active-subspace steering (d=3209, K-sweep)
+          -> Verdict: null-space not the bottleneck
+          -> Fluency pilot: steering preserves coherence
 ```
 
 ## Repository Structure
@@ -173,23 +209,27 @@ robust-representation-steering/
 │   ├── 07_sae_hessian_feasibility.py # SAE-space Hessian spectral analysis
 │   ├── 08_sae_steering_prototype.py  # 4-way factorial steering comparison
 │   ├── 09_decoder_subspace_diagnostic.py  # Decoder column-space diagnostic
-│   ├── 10_sae_feature_decomposition.py   # L2/L1/encoder decomposition
+│   ├── 10_sae_feature_decomposition.py   # Feature decomposition analysis
+│   ├── 11_active_subspace_steering.py    # Active-subspace SAE steering pipeline
 │   ├── verify_env.py                 # Environment verification utility
 │   └── verify_model_and_activations.py   # Model/activation verification
 ├── outputs/                          # Experiment artifacts (.pt files gitignored)
 │   ├── technical_summary.md          # Full technical report
 │   ├── implementation_memo.md        # Math verification & code walkthrough
+│   ├── implementation_report.md      # Advisor-facing pipeline report
 │   ├── probe_loss_analysis.csv       # Per-probe loss table (51 rows)
 │   ├── steering_comparison_report.txt
 │   ├── sae_steering_prototype_report.txt
 │   ├── decoder_subspace_diagnostic.txt
 │   ├── sae_feature_decomposition_report.txt
+│   ├── active_subspace_steering_report.txt
+│   ├── fluency_samples.txt
 │   ├── rashomon/                     # Raw-space Rashomon results
 │   └── rashomon_sae/                 # SAE-space Rashomon results
 └── assets/figures/                   # Publication-quality figures
 ```
 
-## Quick Start
+## Reproduction
 
 ### Environment
 
@@ -201,7 +241,7 @@ pip install -r requirements.txt
 
 ### Run the Pipeline
 
-Scripts 01--06 reproduce the core Rashomon and robust steering results. Scripts 07--10 reproduce the SAE diagnostic experiments. Steps 01--04 and 07--10 require GPU. Steps 05--06 run on CPU.
+Scripts 01--06 reproduce the core Rashomon and robust steering results. Scripts 07--11 reproduce the SAE diagnostic experiments. Steps 01--04 and 07--11 require GPU. Steps 05--06 run on CPU.
 
 ```bash
 # Core pipeline
@@ -217,6 +257,7 @@ python scripts/07_sae_hessian_feasibility.py    # SAE-space Hessian characteriza
 python scripts/08_sae_steering_prototype.py     # 4-way factorial comparison
 python scripts/09_decoder_subspace_diagnostic.py  # Decoder column-space test
 python scripts/10_sae_feature_decomposition.py  # Feature decomposition analysis
+python scripts/11_active_subspace_steering.py   # Active-subspace SAE steering
 ```
 
 ## Citation
