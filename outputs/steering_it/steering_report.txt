@@ -1,0 +1,7 @@
+IT-Model Steering Summary
+Mean ||d_naive||:  2.4581
+Mean ||d_robust||: 6.5498
+Norm ratio: 2.66x
+Mean Rashomon coverage (naive):  48.48%
+Mean Rashomon coverage (robust): 100.00%
+100% coverage rate (robust): 100.0%

@@ -1,6 +1,6 @@
 # Rashomon-Robust Representation Steering
 
-**Safety probes with >99.9% cosine similarity disagree on up to 90% of predictions. We derive a closed-form fix -- and systematically show that SAE features amplify probe multiplicity but cannot serve as a steering basis.**
+**Safety probes with >99.9% cosine similarity disagree on up to 90% of predictions. We derive a closed-form fix that achieves 100% Rashomon coverage -- then systematically show it fails to influence model behavior. Activation geometry reveals why: the safety direction is orthogonal to the variance structure that governs generation.**
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 [![PyTorch 2.x](https://img.shields.io/badge/PyTorch-2.x-ee4c2c.svg)](https://pytorch.org/)
@@ -17,8 +17,9 @@
 | **Robust Steering** | **100% Rashomon coverage** vs 40% naive, at 3.25$\times$ norm cost |
 | **Generalization** | Pearson $r = 0.997$ between val and test loss -- the Rashomon bound transfers to held-out data |
 | **SAE-Decoded Steering** | **~13% coverage** across all tested variants -- full SAE, active-subspace, and K-sweep |
-| **Decoder Diagnostic** | Full rank (2,304/2,304) -- expressivity is not the bottleneck |
-| **Feature Decomposition** | Robust delta is intrinsically SAE-dense: **2,433 features** even under $\ell_1$ minimization |
+| **Behavioral Evaluation** | **0% safety improvement** on instruction-tuned model across 152 judge evaluations |
+| **Injection Strategy A/B** | Last-token, all-token, and continuous injection all produce $\Delta\text{Safety} = +0.00$ |
+| **Geometric Explanation** | Probe direction is **orthogonal to dominant PCs** (2% energy in PC1-PC2); Fisher ratio = 0.056 |
 
 ---
 
@@ -160,13 +161,109 @@ The three diagnostics converge: the decoder can express any raw-space direction,
 
 Interpretable sparse steering would require an $\ell_1$-penalized robust optimization that explicitly trades Rashomon coverage for sparsity -- a genuinely different optimization objective, not a change in analysis.
 
-A fluency pilot (5 examples $\times$ 3 conditions) confirms that steering at norms up to ~10 preserves text coherence in the Gemma-2 2B base model, though meaningful refusal evaluation requires an instruction-tuned model.
+## Behavioral Evaluation: The Generation Gap
+
+Robust steering achieves 100% Rashomon coverage at the probe level. Does this translate to improved safety in model generation? We evaluate this through an LLM-as-judge protocol on both base and instruction-tuned Gemma-2 models.
+
+### Judge Protocol
+
+We use **Gemma-2 9B-it** as a judge with a structured 3-axis rubric:
+- **Safety** (1--5): refusal quality for harmful prompts
+- **Helpfulness** (1--5): response relevance
+- **Evasiveness** (1--5): directness vs hedging
+
+Parse success: **100%** across all 152 evaluations (60 + 60 + 32). The judge infrastructure is mechanically sound.
+
+### Base Model: No Refusal Circuits
+
+On Gemma-2 2B (base), steering produces no safety improvement because the base model lacks refusal circuits entirely. Mean safety: 2.20/5.00 across all conditions. The model generates potentially unsafe content regardless of steering.
+
+### IT Model: Ceiling Effect
+
+On **Gemma-2 2B-it** (instruction-tuned), the opposite problem emerges. We evaluate under progressively broader conditions:
+
+| Experiment | Prompts | Conditions | $N_\text{eval}$ | Baseline Safety | $\Delta$Safety (Robust) |
+|:-----------|:--------|:-----------|:---:|:---:|:---:|
+| Extreme prompts | 20 (10 unsafe, 10 safe) | baseline, naive, robust | 60 | 4.80 | **+0.00** |
+| Boundary prompts | 20 (8 boundary, 12 mild) | baseline, naive, robust | 60 | 4.75 | **+0.00** |
+| Injection A/B test | 8 boundary | baseline + 3 injection strategies | 32 | 4.75 | **+0.00** |
+
+The IT model already achieves Safety $\approx 4.8/5.0$ at baseline -- RLHF-trained refusal is robust to representation-level perturbation. The effect is not prompt-dependent: even at the probe decision boundary (|score| < 0.05), baseline safety remains at ceiling.
+
+### Injection Strategy Comparison
+
+To rule out injection scope as the bottleneck, we test three strategies:
+
+| Strategy | Description | $\Delta$Safety |
+|:---------|:-----------|:---:|
+| **Last-token** | $\delta$ on last token, prompt pass only | +0.00 |
+| **All-token** | $\delta$ on all positions, prompt pass only | +0.00 |
+| **Continuous** | $\delta$ on all positions, every forward pass | +0.00 |
+
+All-token and continuous produce more textual variation (7/8 differ from baseline vs 6/8 for last-token) and slightly higher helpfulness (+0.12), but **zero safety-relevant changes** under any strategy. The bottleneck is not injection scope.
+
+## Activation Geometry: Why Steering Fails
+
+The 100% probe coverage / 0% behavioral change disconnect demands an explanation. We analyze the geometry of IT-model layer-10 activations to find it.
+
+### The Safety Direction Is Geometrically Marginal
+
+![IT-Model Layer 10 Activations (PCA)](assets/figures/fig1_pca_scatter.png)
+
+PCA reveals that **PC1 alone captures 77.3% of activation variance**. The probe direction is nearly orthogonal to these dominant directions:
+
+| PC Subspace | Probe Energy Captured |
+|:------------|:---------------------:|
+| Top-2 PCs | **2.0%** |
+| Top-10 PCs | 7.0% |
+| Top-50 PCs | 24.2% |
+
+The safety probe finds a real separating direction, but it lives in a **low-variance subspace** invisible to the dominant activation structure.
+
+### Steering Vectors Align Perfectly with Probe -- Not with Data
+
+| Alignment | Cosine |
+|:----------|:------:|
+| $\cos(\delta_\text{robust}, w_\text{probe})$ | **+1.000** |
+| $\cos(\delta_\text{robust}, \delta_\text{naive})$ | **+1.000** |
+| $\cos(\delta_\text{robust}, \mu_\text{safe} - \mu_\text{unsafe})$ | +0.154 |
+
+The naive and robust deltas are **identical in direction** -- the Hessian-based optimization changes only magnitude, not direction. Both are perfectly aligned with the probe weight but weakly aligned with the actual class centroid difference. Fisher's discriminant ratio: **0.056** (heavy class overlap along the discriminant).
+
+### The Rashomon Set Is a Point
+
+![Rashomon Probe Directions in PCA Space](assets/figures/fig6_rashomon_directions.png)
+
+All 33 IT-model Rashomon probes point in essentially the **same direction**: mean pairwise angle = **0.64 degrees**. Despite 19% Hamming disagreement on predictions, the weight vectors form a cone barely wider than a single ray. The Rashomon "diversity" arises from infinitesimal angular differences amplified by boundary examples -- not from genuinely distinct safety directions.
+
+### Probe Score Distribution
+
+![IT-Model Probe Score Distribution](assets/figures/fig5_score_distribution.png)
+
+The probe score distribution shows broad, overlapping safe and unsafe distributions. The boundary band (|score| < 0.5) contains examples where the probe is genuinely uncertain, yet the IT model's behavioral safety remains at ceiling even for these examples.
+
+### Steering Trajectories
+
+![Steering Trajectories for Boundary Examples](assets/figures/fig7_steering_trajectories.png)
+
+Steering trajectories for boundary examples show the perturbation is nearly invisible in PCA space -- the safety direction is orthogonal to the axes that capture 79% of variance. The model's downstream generation heads attend to these high-variance directions, effectively ignoring perturbations along the probe direction.
+
+### Geometric Interpretation
+
+The safety signal is **real but geometrically marginal**. The linear probe detects a legitimate separating direction in activation space, but this direction lies in a low-variance subspace orthogonal to the components that dominate the model's generation behavior. Steering along this direction changes activations in ways the probe detects (100% Rashomon coverage) but the transformer's downstream layers ignore for generation purposes.
+
+This explains why the disconnect persists across:
+- Prompt selection strategies (extreme, boundary, mild)
+- Injection methods (last-token, all-token, continuous)
+- Optimization strategies (naive, robust)
+
+The problem is not tuning -- it is a fundamental mismatch between the subspace where safety is linearly separable and the subspace where generation behavior is determined.
 
 ## Method Overview
 
 ```
 BeaverTails (1000 safe + 1000 unsafe)
-  -> Gemma-2 2B, Layer 10 residual stream (d=2304)
+  -> Gemma-2 2B / 2B-it, Layer 10 residual stream (d=2304)
     -> Linear probe (BCE + L2, lambda=0.01)
       -> AWP: enumerate Rashomon set (50 probes, eps=0.15)
         -> Pairwise Hamming analysis
@@ -182,7 +279,16 @@ BeaverTails (1000 safe + 1000 unsafe)
           -> Verdict: intrinsically SAE-dense
         -> Active-subspace steering (d=3209, K-sweep)
           -> Verdict: null-space not the bottleneck
-          -> Fluency pilot: steering preserves coherence
+    -> Behavioral evaluation (LLM-as-judge)
+      -> Base model: no refusal circuits
+      -> IT model: refusal at ceiling (Safety ~4.8/5)
+        -> Boundary-aware selection: still at ceiling
+        -> Injection A/B: last-token, all-token, continuous all +0.00
+    -> Activation geometry visualization
+      -> PCA / t-SNE / UMAP projections
+      -> Probe direction orthogonal to dominant PCs (2% in PC1-PC2)
+      -> Rashomon probes in 0.64-degree cone
+      -> Verdict: safety direction is geometrically marginal
 ```
 
 ## Repository Structure
@@ -210,7 +316,12 @@ robust-representation-steering/
 │   ├── 08_sae_steering_prototype.py  # 4-way factorial steering comparison
 │   ├── 09_decoder_subspace_diagnostic.py  # Decoder column-space diagnostic
 │   ├── 10_sae_feature_decomposition.py   # Feature decomposition analysis
-│   ├── 11_active_subspace_steering.py    # Active-subspace SAE steering pipeline
+│   ├── 11_active_subspace_steering.py    # Active-subspace SAE steering
+│   ├── 12_judge_eval_protocol.py     # LLM-as-judge evaluation (base model)
+│   ├── 13_judge_eval_it.py           # IT-model 3-axis judge evaluation
+│   ├── 14_judge_eval_boundary.py     # Boundary-aware prompt selection + judge
+│   ├── 15_injection_ab_test.py       # Injection strategy A/B test
+│   ├── 16_activation_geometry.py     # Activation-space geometry visualization
 │   ├── verify_env.py                 # Environment verification utility
 │   └── verify_model_and_activations.py   # Model/activation verification
 ├── outputs/                          # Experiment artifacts (.pt files gitignored)
@@ -225,8 +336,13 @@ robust-representation-steering/
 │   ├── active_subspace_steering_report.txt
 │   ├── fluency_samples.txt
 │   ├── rashomon/                     # Raw-space Rashomon results
-│   └── rashomon_sae/                 # SAE-space Rashomon results
-└── assets/figures/                   # Publication-quality figures
+│   ├── rashomon_sae/                 # SAE-space Rashomon results
+│   ├── judge_eval/                   # Base model judge evaluation
+│   ├── judge_eval_it/                # IT model judge evaluation
+│   ├── judge_eval_boundary/          # Boundary-aware judge evaluation
+│   ├── judge_eval_injection/         # Injection A/B test results
+│   └── visualization/               # Activation geometry figures & report
+└── assets/figures/                   # Publication-quality figures (PNG + PDF)
 ```
 
 ## Reproduction
@@ -237,11 +353,12 @@ robust-representation-steering/
 conda create -n sae_steering python=3.10 -y
 conda activate sae_steering
 pip install -r requirements.txt
+pip install umap-learn   # for activation geometry visualization
 ```
 
 ### Run the Pipeline
 
-Scripts 01--06 reproduce the core Rashomon and robust steering results. Scripts 07--11 reproduce the SAE diagnostic experiments. Steps 01--04 and 07--11 require GPU. Steps 05--06 run on CPU.
+Scripts 01--06 reproduce the core Rashomon and robust steering results. Scripts 07--11 reproduce the SAE diagnostic experiments. Scripts 12--15 reproduce the behavioral evaluation. Script 16 produces activation geometry visualizations. All scripts except 05--06 require GPU.
 
 ```bash
 # Core pipeline
@@ -258,6 +375,15 @@ python scripts/08_sae_steering_prototype.py     # 4-way factorial comparison
 python scripts/09_decoder_subspace_diagnostic.py  # Decoder column-space test
 python scripts/10_sae_feature_decomposition.py  # Feature decomposition analysis
 python scripts/11_active_subspace_steering.py   # Active-subspace SAE steering
+
+# Behavioral evaluation (requires Gemma-2 2B-it and 9B-it)
+python scripts/12_judge_eval_protocol.py        # Base model judge evaluation
+python scripts/13_judge_eval_it.py              # IT model 3-axis judge evaluation
+python scripts/14_judge_eval_boundary.py        # Boundary-aware prompt selection
+python scripts/15_injection_ab_test.py          # Injection strategy A/B test
+
+# Activation geometry visualization
+python scripts/16_activation_geometry.py        # PCA, t-SNE, UMAP + geometric analysis
 ```
 
 ## Citation

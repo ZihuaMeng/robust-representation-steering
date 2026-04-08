@@ -1,0 +1,116 @@
+===========================================================================
+ACTIVATION-SPACE GEOMETRY — ANALYSIS REPORT
+===========================================================================
+
+Date: 2026-04-08 10:59:53
+Model: google/gemma-2-2b-it, Layer 10
+Data: BeaverTails, 1600 train / 400 test, dim=2304
+Rashomon epsilon: 0.15
+
+---------------------------------------------------------------------------
+1. PCA VARIANCE EXPLAINED
+---------------------------------------------------------------------------
+    Components |  Cumulative Variance
+  -------------+---------------------
+             2 |               0.7906
+             3 |               0.8051
+            10 |               0.8485
+            50 |               0.9048
+  50 (max fit) |               0.9048
+
+  PC1 explains 77.26% of variance
+  PC2 explains 1.80% of variance
+
+---------------------------------------------------------------------------
+2. CLUSTER SEPARATION METRICS
+---------------------------------------------------------------------------
+  Centroid distance (L2, 2304-dim): 19.2886
+  Pooled within-cluster std:        0.7663
+  Normalized separation (dist/std): 25.1715
+  Fisher's discriminant ratio:      0.0563
+
+---------------------------------------------------------------------------
+3. PROBE DIRECTION vs PRINCIPAL COMPONENTS
+---------------------------------------------------------------------------
+    PC |   cos(w, PC) |   cos^2 (cumul)
+  -----+--------------+----------------
+     1 |      +0.0055 |          0.0000
+     2 |      -0.1398 |          0.0196
+     3 |      +0.0416 |          0.0213
+     4 |      -0.0640 |          0.0254
+     5 |      +0.0708 |          0.0304
+     6 |      +0.0492 |          0.0328
+     7 |      -0.1021 |          0.0432
+     8 |      -0.1245 |          0.0587
+     9 |      -0.0376 |          0.0602
+    10 |      +0.0987 |          0.0699
+
+  Probe energy in top-k PC subspace:
+    top- 2: 0.0196 (2.0%)
+    top- 3: 0.0213 (2.1%)
+    top- 5: 0.0304 (3.0%)
+    top-10: 0.0699 (7.0%)
+    top-50: 0.2423 (24.2%)
+
+---------------------------------------------------------------------------
+4. STEERING VECTOR ALIGNMENT
+---------------------------------------------------------------------------
+  cos(d_robust, centroid_diff) = +0.1536
+  cos(d_naive,  centroid_diff) = +0.1536
+  cos(d_robust, w_probe)       = +1.0000
+  cos(d_naive,  w_probe)       = +1.0000
+  cos(d_robust, d_naive)       = +1.0000
+
+  Steering vectors vs top PCs:
+    PC |  cos(d_robust, PC) |   cos(d_naive, PC)
+  -----+--------------------+-------------------
+     1 |            +0.0055 |            +0.0055
+     2 |            -0.1398 |            -0.1398
+     3 |            +0.0416 |            +0.0416
+     4 |            -0.0640 |            -0.0640
+     5 |            +0.0708 |            +0.0708
+     6 |            +0.0492 |            +0.0492
+     7 |            -0.1021 |            -0.1021
+     8 |            -0.1245 |            -0.1245
+     9 |            -0.0376 |            -0.0376
+    10 |            +0.0987 |            +0.0987
+
+---------------------------------------------------------------------------
+5. RASHOMON PROBE ANGULAR SPREAD
+---------------------------------------------------------------------------
+  Pairwise cosine similarity:
+    Mean: 0.999913
+    Min:  0.999785
+    Max:  1.000000
+  Pairwise angular distance (degrees):
+    Mean: 0.64
+    Min:  0.00
+    Max:  1.19
+  Angle to baseline probe (degrees):
+    Mean: 0.52
+    Min:  0.40
+    Max:  0.63
+
+---------------------------------------------------------------------------
+6. GEOMETRIC INTERPRETATION
+---------------------------------------------------------------------------
+
+  (a) CLUSTER SEPARATION:
+      Safe and unsafe clusters show moderate separation (normalized separation = 25.17). However, Fisher's discriminant ratio (0.06) indicates overlap remains significant.
+
+  (b) PROBE DIRECTION vs DATA VARIANCE:
+      The probe direction is NEARLY ORTHOGONAL to the top-2 PCs (only 2.0% of probe energy in PC1-PC2). This means the safety-relevant direction is NOT a dominant variance direction in the activation space. The probe finds a subtle, low-variance separating direction that is almost invisible in PCA projections.
+      With top-10 PCs capturing 7.0% of probe energy, the safety direction lies primarily OUTSIDE the dominant variance subspace.
+
+  (c) STEERING VECTOR ALIGNMENT:
+      The robust delta is strongly aligned with the probe direction (cos = +1.0000) and weakly aligned with the safe-unsafe centroid difference (cos = +0.1536).
+      This confirms the robust delta pushes activations along the probe direction as designed. The failure to produce behavioral change is NOT due to misalignment between the delta and probe.
+
+  (d) WHY PROBE-LEVEL STEERING DOESN'T TRANSLATE TO BEHAVIORAL CHANGE:
+      The Rashomon probes span a narrow angular cone (mean pairwise angle = 0.6 degrees), confirming that all near-optimal probes agree on the safety direction. But this direction lives in a low-variance subspace of the activation space (orthogonal to dominant PCs).
+      Meanwhile, the IT model's generation behavior is governed by the full activation geometry — attention patterns, position-specific features, and RLHF-conditioned output heads all operate on the HIGH-variance directions that the probe direction is orthogonal to.
+      Steering along the probe direction moves activations in a direction that the linear probe detects but that the transformer's downstream layers effectively ignore for generation purposes. The safety signal is real but GEOMETRICALLY MARGINAL in the full activation space.
+
+===========================================================================
+END OF REPORT
+===========================================================================

@@ -16,6 +16,8 @@ data/
 outputs/*.pt
 outputs/rashomon/*.pt
 outputs/rashomon_sae/*.pt
+outputs/rashomon_it/*.pt
+outputs/steering_it/*.pt
 
 # Keep CSV reports and text reports (small, essential)
 !outputs/rashomon/hamming_matrix.csv
@@ -37,6 +39,23 @@ outputs/rashomon_sae/*.pt
 !outputs/active_subspace_steering_report.txt
 !outputs/fluency_samples.txt
 
+# Judge eval — keep summary reports, exclude large JSON
+outputs/judge_eval/*.json
+!outputs/judge_eval/judge_summary_report.txt
+outputs/judge_eval_it/*.json
+!outputs/judge_eval_it/judge_summary_report.txt
+outputs/judge_eval_boundary/*.json
+!outputs/judge_eval_boundary/judge_summary_report.txt
+outputs/judge_eval_injection/*.json
+!outputs/judge_eval_injection/injection_comparison_report.txt
+
+# IT-model Rashomon and steering — keep text reports only
+!outputs/rashomon_it/rashomon_report.txt
+!outputs/steering_it/steering_report.txt
+
+# Visualization — keep all figures and report (lightweight)
+# (PNG, PDF, and TXT files are small enough for git)
+
 # Local planning / working memory
 project_memory/
 
@@ -54,3 +73,10 @@ Thumbs.db
 # Environment
 .env
 *.log
+
+# Secrets
+HF_token
+HF_token.txt
+
+# Judge eval outputs (JSON, large)
+outputs/judge_eval/*.json
